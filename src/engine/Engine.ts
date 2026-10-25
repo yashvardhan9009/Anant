@@ -154,6 +154,7 @@ export class Engine {
   }
 
   applyFocus(kind: string, id: string) {
+    if (kind === 'astro') return; // catalog objects are framed by the realm's scale engine
     const r = this.realm;
     const pt = r.focusPoint(kind, id);
     if (!pt) return;

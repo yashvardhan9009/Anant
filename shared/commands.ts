@@ -120,6 +120,8 @@ export const CommandSchemas = {
     op: z.literal('cosmos_set_body'),
     target,
     mass_multiplier: z.number().min(0.001).max(10000).optional(),
+    /** drawn size only (sandbox visual) — never changes mass */
+    radius_multiplier: z.number().min(0.1).max(20).optional(),
     color: color.optional(),
   }),
   cosmos_add_body: z.object({
@@ -139,11 +141,29 @@ export const CommandSchemas = {
     trails: z.boolean().optional(),
   }),
   cosmos_black_hole: z.object({ op: z.literal('cosmos_black_hole'), show: z.boolean() }),
+  cosmos_set_mode: z.object({ op: z.literal('cosmos_set_mode'), mode: z.enum(['sandbox', 'physics']) }),
+  cosmos_move_body: z.object({
+    op: z.literal('cosmos_move_body'),
+    target,
+    /** new position in AU (heliocentric frame of the simulation) */
+    position: vec3.optional(),
+    /** move toward another body by this fraction of the separation */
+    toward: target.optional(),
+    fraction: z.number().min(0.05).max(0.95).optional(),
+    /** put on a circular orbit at this distance (AU) from the heaviest body */
+    orbit_au: z.number().min(0.05).max(100).optional(),
+  }),
+  cosmos_grab: z.object({ op: z.literal('cosmos_grab'), target: target.optional(), release: z.boolean().optional() }),
+  reset_system: z.object({ op: z.literal('reset_system') }),
+  undo: z.object({ op: z.literal('undo') }),
+  redo: z.object({ op: z.literal('redo') }),
 
   camera_focus: z.object({ op: z.literal('camera_focus'), target }),
   talk_to: z.object({ op: z.literal('talk_to'), npc: target }),
   accuse: z.object({ op: z.literal('accuse'), npc: target }),
   save_world: z.object({ op: z.literal('save_world'), name: z.string().min(1).max(48).optional() }),
+  go_to_object: z.object({ op: z.literal('go_to_object'), name: z.string().min(1).max(80) }),
+  find_objects: z.object({ op: z.literal('find_objects'), query: z.string().max(80).optional(), jwst: z.boolean().optional() }),
   set_scale: z.object({
     op: z.literal('set_scale'),
     /** apparent body size in metres (NOT mass) */
@@ -178,7 +198,13 @@ export const COMMAND_DOCS: Record<CommandOp, string> = {
   atom_transition: 'Animate an electron transition to (n,l,m) and emit/absorb a photon with the correct Rydberg wavelength. Same constraints as atom_set_orbital.',
   atom_set_view: 'Adjust atom view / powers-of-ten zoom. scale 1 = one atom; 0.35 ≈ a water molecule; 0.06 ≈ liquid water; 150000 ≈ the proton at true size. {scale? 0.0005..300000, scale_by?, temperature? K (liquid water motion), show_nucleus?, highlight_most_probable? (shell where the electron is most likely to be found), slice? (cut-away)}',
   cosmos_create_system: `Create a star system. preset ∈ ${COSMOS_PRESETS.join('|')}.`,
-  cosmos_set_body: 'Change a celestial body. {target (name e.g. "jupiter"), mass_multiplier?, color?}',
+  cosmos_set_body: 'Change a celestial body. {target (name e.g. "jupiter"), mass_multiplier?, radius_multiplier? (drawn size only), color?}',
+  cosmos_set_mode: 'Manipulation mode. sandbox = move/resize freely (moved planets get a fresh circular orbit; moving a star carries its system); physics = moves change only positions and the N-body simulation computes the consequences. {mode}',
+  cosmos_move_body: 'Move a celestial body. {target, position? AU, toward? other body + fraction?, orbit_au? (circular orbit at this distance)}',
+  cosmos_grab: 'Pick up a celestial body so it follows the pointer/hand; release:true drops it. {target?, release?}',
+  reset_system: 'Reset the star system to its initial configuration.',
+  undo: 'Undo the last world change.',
+  redo: 'Redo the last undone change.',
   cosmos_add_body: 'Add a planet on a circular orbit. {name, mass (solar masses; Earth≈3e-6, Jupiter≈9.5e-4), distance (AU), color?}',
   cosmos_remove_body: 'Remove a celestial body. {target}',
   cosmos_set_sim: 'Simulation controls. {time_scale? (years per second, 0..50), paused?, trails?}',
@@ -187,6 +213,8 @@ export const COMMAND_DOCS: Record<CommandOp, string> = {
   talk_to: 'Begin a conversation with an NPC in the village. {npc}',
   accuse: 'Formally accuse an NPC of stealing the Ember Crown (story decision with consequences). {npc}',
   save_world: 'Save the current world. {name?}',
+  go_to_object: 'Fly to a real catalogued astronomical object (e.g. Andromeda, Sombrero Galaxy, Pillars of Creation, Orion Nebula, Sagittarius A*, Stephan’s Quintet, M87). {name}',
+  find_objects: 'Search the astronomical catalog. {query?, jwst? (only objects imaged by the James Webb Space Telescope)}',
   set_scale: `Change the user's APPARENT size (never their mass). Moves to the realm that can show that size (< 1 µm → atom/micro world, > 2 km → cosmos, otherwise human scale). {size_m? metres, preset? (${SCALE_PRESET_IDS.join('|')}), factor? (e.g. 0.1 = ten times smaller)}`,
 };
 
@@ -230,6 +258,7 @@ export function semanticCheck(cmd: Command): string | null {
     if (Math.abs(cmd.m) > cmd.l) return `quantum numbers invalid: |m| (${Math.abs(cmd.m)}) must be ≤ l (${cmd.l})`;
   }
   if (cmd.op === 'set_scale' && cmd.size_m === undefined && cmd.preset === undefined && cmd.factor === undefined) return 'set_scale needs size_m, preset or factor';
+  if (cmd.op === 'cosmos_move_body' && !cmd.position && !cmd.toward && cmd.orbit_au === undefined) return 'cosmos_move_body needs position, toward or orbit_au';
   if (cmd.op === 'transform_object') {
     const any = cmd.scale_by ?? cmd.scale_to ?? cmd.move_by ?? cmd.move_to ?? cmd.rotate_by ?? cmd.place_on;
     if (any === undefined) return 'transform_object needs at least one of scale_by, scale_to, move_by, move_to, rotate_by, place_on';

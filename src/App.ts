@@ -21,6 +21,8 @@ import { Atom } from './realms/Atom';
 import { assets } from './engine/assets';
 
 const LS_KEY = 'anant.world.v1';
+/** Operations that change the world enough to deserve an undo step. */
+const UNDOABLE = new Set(['cosmos_move_body', 'cosmos_set_body', 'cosmos_add_body', 'cosmos_remove_body', 'cosmos_create_system', 'reset_system', 'set_gravity', 'spawn_object', 'delete_object', 'transform_object', 'set_object_property', 'set_environment', 'atom_set_orbital', 'atom_transition', 'cosmos_set_mode']);
 const JOURNEY: RealmId[] = ['atom', 'cosmos', 'village', 'nexus'];
 const REALM_COLOR: Record<RealmId, string> = { nexus: '#b388ff', atom: '#7df9ff', cosmos: '#ffd27d', village: '#ff9a6b' };
 
@@ -43,6 +45,9 @@ export class App implements InputHost {
   private cardTimer = 0;
   private showPerf = false;
   lastDirectorMs?: number;
+  private undoStack: { state: WorldState; label: string }[] = [];
+  private redoStack: { state: WorldState; label: string }[] = [];
+  private bodyGrab?: { id: string; planeY: number };
 
   constructor() {
     this.engine = new Engine(document.getElementById('stage')!);
@@ -195,6 +200,7 @@ export class App implements InputHost {
 
   /** Execute ONE validated command and apply its engine side-effects. Returns the confirmed result. */
   private async exec(cmd: Command): Promise<ExecResult> {
+    if (cmd.op === 'undo' || cmd.op === 'redo') return this.undoRedo(cmd.op);
     const prevRealm = this.state.activeRealm;
     let base = this.state;
     if (cmd.op.startsWith('cosmos_') || cmd.op === 'save_world') base = this.withCosmosSnapshot(base);
@@ -202,6 +208,11 @@ export class App implements InputHost {
     if (!result.ok) {
       this.audio.sfx('fail');
       return result;
+    }
+    if (UNDOABLE.has(cmd.op)) {
+      this.undoStack.push({ state: base, label: result.message.slice(0, 80) });
+      if (this.undoStack.length > 40) this.undoStack.shift();
+      this.redoStack = [];
     }
     this.setState(state);
     switch (cmd.op) {
@@ -216,6 +227,25 @@ export class App implements InputHost {
           this.applyObserverFor(to);
           this.refreshCard();
         }
+        break;
+      }
+      case 'cosmos_grab':
+        if (!cmd.release) {
+          this.bodyGrab = { id: state.cosmos.grabbed ?? cmd.target ?? '', planeY: 0 };
+          this.undoStack.push({ state: base, label: `Moved ${state.cosmos.grabbed}` });
+          this.redoStack = [];
+        } else this.releaseBody();
+        break;
+      case 'go_to_object': {
+        if (state.activeRealm !== prevRealm) {
+          this.closeDialogue(true);
+          this.audio.sfx('warp');
+          await this.engine.transitionTo('cosmos', undefined, '#ffd27d');
+          this.audio.ambience('cosmos');
+        }
+        (this.engine.realms.cosmos as Cosmos).applyObserver(state.observer.size, this.engine.rig, cmd.name);
+        this.hud.setObserver(state.observer.size);
+        this.refreshCard();
         break;
       }
       case 'set_scale': {
@@ -247,6 +277,23 @@ export class App implements InputHost {
     }
     if (cmd.op !== 'go_to_realm' && cmd.op !== 'enter_portal') this.audio.sfx('ok');
     return result;
+  }
+
+  /** Restore the previous/next world snapshot (the live simulation reloads from it). */
+  private async undoRedo(op: 'undo' | 'redo'): Promise<ExecResult> {
+    const from = op === 'undo' ? this.undoStack : this.redoStack;
+    const to = op === 'undo' ? this.redoStack : this.undoStack;
+    const entry = from.pop();
+    if (!entry) return { ok: false, op, message: op === 'undo' ? 'Nothing to undo.' : 'Nothing to redo.' };
+    const current = this.withCosmosSnapshot(this.state);
+    to.push({ state: current, label: entry.label });
+    const restored: WorldState = structuredClone(entry.state);
+    restored.cosmos.epoch = Math.max(current.cosmos.epoch, restored.cosmos.epoch) + 1; // force the simulation to reload
+    const prevRealm = this.state.activeRealm;
+    this.setState(restored);
+    if (restored.activeRealm !== prevRealm) await this.engine.transitionTo(restored.activeRealm, undefined, REALM_COLOR[restored.activeRealm]);
+    this.audio.sfx('ok');
+    return { ok: true, op, message: `${op === 'undo' ? 'Undid' : 'Redid'}: ${entry.label}` };
   }
 
   /** Run commands sequentially (serialised with any other running batch). */
@@ -388,6 +435,7 @@ export class App implements InputHost {
 
   pickAction(p: PickResult, via: 'mouse' | 'hand') {
     this.audio.start();
+    if (this.state.cosmos.grabbed && this.state.activeRealm === 'cosmos') { this.releaseBody(); return; }
     if (p.portalId) this.run([{ op: 'enter_portal', portal: p.portalId }], 'gesture');
     else if (p.npcId) this.run([{ op: 'talk_to', npc: p.npcId }], 'npc');
     else if (p.gate) {
@@ -406,6 +454,47 @@ export class App implements InputHost {
       this.commit({ op: 'select_object', target: p.objectId });
       this.audio.sfx('select');
     }
+  }
+
+  /** Pinch/drag on a celestial body: pick it up. */
+  beginBodyGrab(id: string) {
+    if (this.state.activeRealm !== 'cosmos') return false;
+    const r = execute(this.state, { op: 'cosmos_grab', target: id });
+    if (!r.result.ok) return false;
+    this.undoStack.push({ state: this.withCosmosSnapshot(this.state), label: `Moved ${id}` });
+    this.redoStack = [];
+    this.setState(r.state);
+    this.bodyGrab = { id: r.state.cosmos.grabbed!, planeY: 0 };
+    this.audio.sfx('select');
+    return true;
+  }
+
+  /** Called per pointer/hand move while a body is held. */
+  moveBody(ndc: THREE.Vector2) {
+    if (!this.bodyGrab || this.state.activeRealm !== 'cosmos') return;
+    const cos = this.engine.realms.cosmos as Cosmos;
+    const cur = cos.focusPoint('body', this.bodyGrab.id);
+    const hit = this.engine.rayToPlane(ndc, cur?.y ?? 0);
+    if (!hit) return;
+    cos.holdAt(this.bodyGrab.id, cos.displayToAU(this.bodyGrab.id, hit), (this.state.cosmos.mode ?? 'physics') === 'sandbox');
+  }
+
+  /** Drop the held body: commit its final position as a validated command. */
+  releaseBody() {
+    const g = this.bodyGrab ?? (this.state.cosmos.grabbed ? { id: this.state.cosmos.grabbed, planeY: 0 } : undefined);
+    if (!g) return;
+    this.bodyGrab = undefined;
+    const cos = this.engine.realms.cosmos as Cosmos;
+    const i = cos.sim.index(g.id);
+    const snap = this.withCosmosSnapshot(this.state);
+    let s = execute(snap, { op: 'cosmos_grab', release: true }).state;
+    if (i >= 0) {
+      const p = cos.sim.getPos(i);
+      const r = execute(s, { op: 'cosmos_move_body', target: g.id, position: [+p[0].toFixed(5), +p[1].toFixed(5), +p[2].toFixed(5)] });
+      if (r.result.ok) { s = r.state; this.hud.system(r.result.message, 'ok'); }
+    }
+    this.setState(s);
+    this.audio.sfx('ok');
   }
 
   beginGrab(objectId: string, point: THREE.Vector3) {

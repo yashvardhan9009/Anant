@@ -10,6 +10,7 @@ import { REALM_INFO, orbitalName } from './commands.js';
 import { makePreset, BodyDef, G_AU } from './physics.js';
 import { describeTransition, mostProbableRadius } from './hydrogen.js';
 import { initialStory, StoryState, resolveNpc, accuse as storyAccuse } from './story.js';
+import { ASTRO, resolveAstro, viewSizeFor, formatDistance, inMilkyWay } from './astro.js';
 import { SCALE_PRESETS, ScalePreset, clampSize, routeForSize, atomZoomForSize, sizeForAtomZoom, describeSize, HUMAN } from './scale.js';
 
 export type Vec3 = [number, number, number];
@@ -84,12 +85,18 @@ export interface WorldState {
     paused: boolean;
     trails: boolean;
     blackHole: boolean;
+    /** bumps when bodies are moved, so the live simulation reloads positions */
+    revision?: number;
+    /** sandbox = free manipulation; physics = moves only change initial conditions */
+    mode?: 'sandbox' | 'physics';
+    /** body currently held by the user */
+    grabbed?: string;
   };
   story: StoryState;
   /** the user's apparent size in metres (separate from mass, time and gravity) */
   observer: { size: number };
   selectedId?: string;
-  focus?: { kind: 'object' | 'body' | 'npc'; id: string; seq: number };
+  focus?: { kind: 'object' | 'body' | 'npc' | 'astro'; id: string; seq: number };
   seq: number;
   history: HistoryEntry[];
 }
@@ -436,11 +443,14 @@ export function execute(prev: WorldState, cmd: Command, ctx: ExecContext = {}): 
       if (!b) { result = fail(cmd.op, `There is no body called "${cmd.target}" in this system.`); break; }
       const before = b.mass;
       if (cmd.mass_multiplier !== undefined) b.mass = b.mass * cmd.mass_multiplier;
+      if (cmd.radius_multiplier !== undefined) b.radius = Math.min(30, Math.max(0.05, b.radius * cmd.radius_multiplier));
       if (cmd.color) b.color = cmd.color;
       const jup = b.mass / 9.545e-4, earth = b.mass / 3.003e-6;
       result = {
         ok: true, op: cmd.op,
-        message: cmd.mass_multiplier !== undefined
+        message: cmd.radius_multiplier !== undefined && cmd.mass_multiplier === undefined
+          ? `${b.name} is drawn ${cmd.radius_multiplier}× larger (a visual change in sandbox — its mass, and so the physics, are unchanged).`
+          : cmd.mass_multiplier !== undefined
           ? `${b.name}'s mass: ${before.toExponential(2)} → ${b.mass.toExponential(2)} M☉ (${jup >= 0.1 ? jup.toFixed(1) + ' Jupiter' : earth.toFixed(1) + ' Earth'} masses). Watch the orbits respond.`
           : `${b.name} updated.`,
         data: { id: b.id, mass: b.mass },
@@ -480,6 +490,76 @@ export function execute(prev: WorldState, cmd: Command, ctx: ExecContext = {}): 
       result = { ok: true, op: cmd.op, message: `Simulation: ${s.cosmos.paused ? 'paused' : `${s.cosmos.timeScale} years per second`}${cmd.trails !== undefined ? `, trails ${cmd.trails ? 'on' : 'off'}` : ''}.` };
       break;
     }
+    case 'cosmos_set_mode': {
+      s.cosmos.mode = cmd.mode;
+      result = { ok: true, op: cmd.op, message: cmd.mode === 'sandbox'
+        ? 'Sandbox mode: move and resize bodies freely. Moved planets get a fresh circular orbit; moving a star carries its planets with it.'
+        : 'Physics mode: moving a body changes only its position — the N-body simulation computes what happens next.' };
+      break;
+    }
+    case 'cosmos_move_body': {
+      const b = resolveBody(s, cmd.target);
+      if (!b) { result = fail(cmd.op, `There is no body called "${cmd.target}".`); break; }
+      const centre = [...s.cosmos.bodies].sort((x, y) => y.mass - x.mass)[0];
+      let to: Vec3 | undefined = cmd.position ? [...cmd.position] as Vec3 : undefined;
+      if (cmd.toward) {
+        const t = resolveBody(s, cmd.toward);
+        if (!t || t.id === b.id) { result = fail(cmd.op, `I can't find "${cmd.toward}" to move toward.`); break; }
+        const f = cmd.fraction ?? 0.4;
+        to = [b.pos[0] + (t.pos[0] - b.pos[0]) * f, b.pos[1] + (t.pos[1] - b.pos[1]) * f, b.pos[2] + (t.pos[2] - b.pos[2]) * f];
+      }
+      if (cmd.orbit_au !== undefined) {
+        const dir = [b.pos[0] - centre.pos[0], b.pos[2] - centre.pos[2]];
+        const l = Math.hypot(dir[0], dir[1]) || 1;
+        to = [centre.pos[0] + (dir[0] / l) * cmd.orbit_au, centre.pos[1], centre.pos[2] + (dir[1] / l) * cmd.orbit_au];
+      }
+      const delta: Vec3 = [to![0] - b.pos[0], to![1] - b.pos[1], to![2] - b.pos[2]];
+      const sandbox = (s.cosmos.mode ?? 'physics') === 'sandbox';
+      if (sandbox && b.id === centre.id) {
+        // carry the whole system along with its star
+        for (const x of s.cosmos.bodies) x.pos = [x.pos[0] + delta[0], x.pos[1] + delta[1], x.pos[2] + delta[2]];
+      } else {
+        b.pos = to!;
+        if (sandbox || cmd.orbit_au !== undefined) {
+          // fresh circular orbit around the heaviest body at the new distance
+          const rx = b.pos[0] - centre.pos[0], rz = b.pos[2] - centre.pos[2];
+          const r = Math.hypot(rx, rz) || 1e-3;
+          const v = Math.sqrt((G_AU * s.env[s.activeRealm === 'cosmos' ? 'cosmos' : 'cosmos'].gravity * (centre.mass + b.mass)) / r);
+          b.vel = [centre.vel[0] - (rz / r) * v, centre.vel[1], centre.vel[2] + (rx / r) * v];
+        }
+      }
+      s.cosmos.revision = (s.cosmos.revision ?? 0) + 1;
+      const d = Math.hypot(b.pos[0] - centre.pos[0], b.pos[1] - centre.pos[1], b.pos[2] - centre.pos[2]);
+      result = { ok: true, op: cmd.op, message: `${b.name} moved${b.id === centre.id ? '' : ` to ${d.toFixed(2)} AU from ${centre.name}`}. ${sandbox ? (b.id === centre.id ? 'Sandbox: its planets came along.' : 'Sandbox: given a fresh circular orbit.') : 'Physics: velocity unchanged — watch the orbit respond.'}`, data: { id: b.id } };
+      break;
+    }
+    case 'cosmos_grab': {
+      if (cmd.release) {
+        const was = s.cosmos.grabbed;
+        s.cosmos.grabbed = undefined;
+        result = { ok: true, op: cmd.op, message: was ? `Released ${resolveBody(s, was)?.name ?? was}.` : 'Nothing was held.' };
+        break;
+      }
+      const b = cmd.target ? resolveBody(s, cmd.target) : undefined;
+      if (!b) { result = fail(cmd.op, `There is no body called "${cmd.target ?? ''}" to grab.`); break; }
+      s.cosmos.grabbed = b.id;
+      result = { ok: true, op: cmd.op, message: `You hold ${b.name}. Move the pointer (or your hand) to carry it; click or say “let go” to release.${(s.cosmos.mode ?? 'physics') === 'physics' ? ' (Physics mode: switch to sandbox to carry its planets with it.)' : ''}`, data: { id: b.id } };
+      break;
+    }
+    case 'reset_system': {
+      s.cosmos.bodies = makePreset(s.cosmos.preset as any);
+      s.cosmos.epoch += 1;
+      s.cosmos.grabbed = undefined;
+      s.cosmos.blackHole = false;
+      result = { ok: true, op: cmd.op, message: `The ${s.cosmos.preset.replace('_', ' ')} is reset to its starting configuration.` };
+      break;
+    }
+    case 'undo':
+    case 'redo': {
+      // performed by the app's history stack, which confirms the restore
+      result = { ok: true, op: cmd.op, message: cmd.op === 'undo' ? 'Undo requested.' : 'Redo requested.' };
+      break;
+    }
     case 'cosmos_black_hole': {
       s.cosmos.blackHole = cmd.show;
       result = { ok: true, op: cmd.op, message: cmd.show ? 'A Schwarzschild black hole fills the sky. Light bends around it.' : 'The black hole fades; the star system returns.' };
@@ -513,6 +593,24 @@ export function execute(prev: WorldState, cmd: Command, ctx: ExecContext = {}): 
       const r = storyAccuse(s.story, n.id);
       s.story = r.story;
       result = { ok: true, op: cmd.op, message: r.message, data: { outcome: s.story.outcome?.kind } };
+      break;
+    }
+    case 'go_to_object': {
+      const o = resolveAstro(cmd.name);
+      if (!o) { result = fail(cmd.op, `“${cmd.name}” is not in ANANT’s catalog yet. Try: ${ASTRO.slice(9, 15).map((x) => x.name).join(', ')}.`); break; }
+      const from = s.activeRealm;
+      s.activeRealm = 'cosmos';
+      s.cosmos.blackHole = false;
+      s.observer = { size: viewSizeFor(o) };
+      s.focus = { kind: 'astro', id: o.id, seq: ++s.seq };
+      result = { ok: true, op: cmd.op, message: `Flying to ${o.name} — ${o.kind}, ${formatDistance(o)} away${inMilkyWay(o) ? ' (inside our Milky Way)' : ''}.`, data: { from, to: 'cosmos', id: o.id } };
+      break;
+    }
+    case 'find_objects': {
+      const q = (cmd.query ?? '').toLowerCase();
+      const hits = ASTRO.filter((o) => (!cmd.jwst || o.jwst) && (!q || o.name.toLowerCase().includes(q) || o.kind.toLowerCase().includes(q) || o.aliases.some((a) => a.includes(q))));
+      if (!hits.length) { result = fail(cmd.op, `No catalogued objects match “${cmd.query ?? ''}”.`); break; }
+      result = { ok: true, op: cmd.op, message: `${hits.length} match${hits.length > 1 ? 'es' : ''}${cmd.jwst ? ' imaged by the James Webb Space Telescope' : ''}: ${hits.map((o) => o.name).join(' · ')}.`, data: { ids: hits.map((o) => o.id) } };
       break;
     }
     case 'set_scale': {

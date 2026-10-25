@@ -27,16 +27,20 @@ export interface InputHost {
   hover(p: PickResult, x: number, y: number): void;
   hotkey(key: string, down: boolean): boolean;
   wheel(delta: number): void;
+  beginBodyGrab(id: string): boolean;
+  moveBody(ndc: THREE.Vector2): void;
+  releaseBody(): void;
 }
 
 export class InputRouter {
   overlay: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
-  private down?: { x: number; y: number; button: number; moved: boolean; grabbing: boolean };
+  private down?: { x: number; y: number; button: number; moved: boolean; grabbing: boolean; body?: boolean };
   private stroke: { x: number; y: number }[] = [];
   private handCursors: { x: number; y: number; pose: string }[] = [];
   private handTrail: { x: number; y: number }[] = [];
   private handGrab = false;
+  private handBody = false;
   private handGrabbingCamera = false;
   private palmProgress = 0;
   handsActive = false;
@@ -78,12 +82,14 @@ export class InputRouter {
     }
     const p = this.host.engine.pick(this.ndc(e.clientX, e.clientY));
     if (p.objectId && p.point && this.host.beginGrab(p.objectId, p.point)) this.down.grabbing = true;
+    else if (p.bodyId && e.shiftKey && this.host.beginBodyGrab(p.bodyId)) { this.down.grabbing = true; this.down.body = true; }
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
   };
 
   private onMove = (e: PointerEvent) => {
     if (this.host.menuOpen()) this.host.menuHover(e.clientX, e.clientY);
     if (!this.down) {
+      this.host.moveBody(this.ndc(e.clientX, e.clientY)); // a body held by voice follows the pointer
       if (e.target === this.host.engine.renderer.domElement) this.host.hover(this.host.engine.pick(this.ndc(e.clientX, e.clientY)), e.clientX, e.clientY);
       return;
     }
@@ -93,7 +99,8 @@ export class InputRouter {
       this.stroke.push({ x: e.clientX, y: e.clientY });
       return;
     }
-    if (this.down.grabbing) this.host.moveGrab(this.ndc(e.clientX, e.clientY), 0);
+    if (this.down.body) this.host.moveBody(this.ndc(e.clientX, e.clientY));
+    else if (this.down.grabbing) this.host.moveGrab(this.ndc(e.clientX, e.clientY), 0);
     else this.host.engine.rig.rotate(dx, dy);
   };
 
@@ -108,6 +115,7 @@ export class InputRouter {
       if (c) this.host.drawPortal(this.ndc(c.cx * innerWidth, c.cy * innerHeight), 'mouse');
       return;
     }
+    if (d.body) { this.host.releaseBody(); return; }
     if (d.grabbing) this.host.endGrab();
     if (!d.moved) this.host.pickAction(this.host.engine.pick(this.ndc(e.clientX, e.clientY)), 'mouse');
   };
@@ -157,15 +165,18 @@ export class InputRouter {
           if (this.host.menuOpen()) { this.host.menuCommit(x, y); break; }
           const p = this.host.engine.pick(this.ndc(x, y));
           if (p.objectId && p.point && this.host.beginGrab(p.objectId, p.point)) this.handGrab = true;
+          else if (p.bodyId && this.host.beginBodyGrab(p.bodyId)) this.handBody = true;
           else if (p.npcId || p.portalId || p.gate || p.bodyId) this.host.pickAction(p, 'hand');
           else this.handGrabbingCamera = true;
           break;
         }
         case 'pinch_move':
-          if (this.handGrab) this.host.moveGrab(this.ndc(ev.x * W, ev.y * H), ev.depth);
+          if (this.handBody) this.host.moveBody(this.ndc(ev.x * W, ev.y * H));
+          else if (this.handGrab) this.host.moveGrab(this.ndc(ev.x * W, ev.y * H), ev.depth);
           else if (this.handGrabbingCamera) this.host.engine.rig.rotate(-ev.dx * W * 0.9, -ev.dy * H * 0.9);
           break;
         case 'pinch_end':
+          if (this.handBody) { this.host.releaseBody(); this.handBody = false; }
           if (this.handGrab) this.host.endGrab();
           this.handGrab = false;
           this.handGrabbingCamera = false;

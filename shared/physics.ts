@@ -225,3 +225,26 @@ export class NBody {
 export function displayRadius(au: number): number {
   return 6 * Math.sqrt(au) + au * 0.6;
 }
+
+/** Inverse of displayRadius (solve 0.6u² + 6u − D = 0 for u = √r). */
+export function inverseDisplayRadius(d: number): number {
+  if (d <= 0) return 0;
+  const u = (-6 + Math.sqrt(36 + 2.4 * d)) / 1.2;
+  return u * u;
+}
+
+/** Compress a vector (AU → display units) radially. */
+export function compress(v: [number, number, number]): [number, number, number] {
+  const r = Math.hypot(v[0], v[1], v[2]);
+  if (r < 1e-12) return [0, 0, 0];
+  const k = displayRadius(r) / r;
+  return [v[0] * k, v[1] * k, v[2] * k];
+}
+
+/** Inverse of compress (display units → AU). */
+export function decompress(v: [number, number, number]): [number, number, number] {
+  const d = Math.hypot(v[0], v[1], v[2]);
+  if (d < 1e-12) return [0, 0, 0];
+  const k = inverseDisplayRadius(d) / d;
+  return [v[0] * k, v[1] * k, v[2] * k];
+}

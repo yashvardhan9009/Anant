@@ -24,7 +24,7 @@ export const CREATE_OPTIONS: { kind: ObjectKind; label: string }[] = [
 const HINTS: Record<string, string[]> = {
   nexus: ['Take me inside an atom', 'Open a portal to space', 'Create a glowing crystal', 'Make the sky purple'],
   atom: ['Show me a water molecule', 'Take me inside the proton', 'Switch to a 2p orbital', 'Excite the electron to 3d', 'Open a portal to space'],
-  cosmos: ['Make Jupiter 1000 times more massive', 'Slow down the simulation', 'Show me a black hole', 'Take me to Europa', 'Open a portal to a fantasy kingdom'],
+  cosmos: ['Make me large enough to hold the Sun', 'Let me grab the Sun', 'Undo', 'Show me thousands of galaxies', 'Take me to Andromeda', 'Show me a black hole'],
   village: ['Talk to Captain Ilsa', 'Create a floating island above the village', 'Summon a dragon', 'Make it night', 'Create a storm'],
 };
 
@@ -183,7 +183,7 @@ export class HUD {
         <tr><td>Drag</td><td>Look / orbit (above &amp; below)</td></tr><tr><td>WASD / arrows</td><td>Move (Shift = fast)</td></tr><tr><td>C</td><td>Free-fly POV camera (E/Q up/down)</td></tr><tr><td>Wheel</td><td>Zoom · in the atom: powers of ten, from liquid water to the proton</td></tr>
         <tr><td>Click</td><td>Select · talk · enter portal</td></tr><tr><td>Drag object</td><td>Move it</td></tr><tr><td>Shift+wheel / [ ]</td><td>Scale selection (or atom)</td></tr>
         <tr><td>Alt+wheel / R</td><td>Rotate selection</td></tr><tr><td>Right-drag a circle</td><td>Open a portal</td></tr><tr><td>Space</td><td>Creation menu</td></tr>
-        <tr><td>F</td><td>Push force</td></tr><tr><td>Del</td><td>Delete selection</td></tr><tr><td>T · V</td><td>Type · hold to talk</td></tr><tr><td>\`</td><td>FPS / latency overlay</td></tr></table>
+        <tr><td>Shift+drag a planet</td><td>Grab &amp; move it (pinch with hands)</td></tr><tr><td>Z · X</td><td>Shrink · grow yourself</td></tr><tr><td>F</td><td>Push force</td></tr><tr><td>Del</td><td>Delete selection</td></tr><tr><td>T · V</td><td>Type · hold to talk</td></tr><tr><td>\`</td><td>FPS / latency overlay</td></tr></table>
         <table><tr><td colspan=2 style="color:var(--violet)">TRY SAYING</td></tr>
         <tr><td>Atom</td><td>“Show me the 1s orbital” · “Switch to 3d_xy” · “Excite the electron to 4f” · “Drop it back to the ground state”</td></tr>
         <tr><td>Cosmos</td><td>“Create a binary star” · “Make the third planet twice as massive” · “Add a planet at 3 AU” · “Show me a black hole”</td></tr>

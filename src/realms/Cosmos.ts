@@ -5,10 +5,13 @@ import { makeSkyDome, makeStarfield, NOISE_GLSL } from '../engine/fx';
 import { radialTexture } from './Atom';
 import { QUALITY } from '../engine/quality';
 import { assets } from '../engine/assets';
-import { cosmosDisplayHeight } from '../../shared/scale';
+import { cosmosDisplayHeight, cosmicLayer, formatLength } from '../../shared/scale';
+import { MilkyWayModel, GalaxyField, CatalogEntry } from './cosmicLayers';
+import { resolveAstro, formatDistance } from '../../shared/astro';
+import { escapeHtml } from './Village';
 import type { CameraRig } from '../engine/CameraRig';
 import type { WorldState, Env } from '../../shared/worldState';
-import { NBody, BodyDef, displayRadius } from '../../shared/physics';
+import { NBody, BodyDef, displayRadius, compress, decompress } from '../../shared/physics';
 
 const TRAIL = 700;
 
@@ -39,6 +42,7 @@ export class Cosmos extends Realm {
   sim = new NBody();
   private defs: BodyDef[] = [];
   private epoch = -1;
+  private revision = 0;
   private views = new Map<string, BodyView>();
   private system = new THREE.Group();
   private sky = makeSkyDome();
@@ -58,7 +62,9 @@ export class Cosmos extends Realm {
     const su = this.sky.uniforms;
     su.uHorizon.value.set('#04050c'); su.uTop.value.set('#010104'); su.uBottom.value.set('#010104');
     su.uNebA.value.set('#3a2a7a'); su.uNebB.value.set('#103e6a'); su.uNebula.value = 0.35; su.uBand.value = 1.1; su.uStars.value = 1.3;
-    this.scene.add(this.sky.mesh, makeStarfield(QUALITY.low ? 3000 : 6000, 900, 1.2), this.system);
+    this.starfield = makeStarfield(QUALITY.low ? 3000 : 6000, 900, 1.2);
+    this.scene.add(this.sky.mesh, this.starfield, this.system);
+    this.initCosmic();
     // the real sky: Milky Way panorama (Solar System Scope, from ESO/NASA imagery)
     const mw = assets.space('8k_stars_milky_way.jpg');
     if (mw) {
@@ -304,6 +310,29 @@ export class Cosmos extends Realm {
     }
   }
   private sunView = { value: new THREE.Vector3(1, 0, 0) };
+  private starfield!: THREE.Points;
+  catalog: CatalogEntry[] = [];
+  milkyWay?: MilkyWayModel;
+  galaxies?: GalaxyField;
+  /** which representation is shown: solar system, Milky Way model or real galaxy field */
+  layer: 'solar' | 'galactic' | 'cosmic' = 'solar';
+  private fade = { solar: 1, galactic: 0, cosmic: 0 };
+  focusAstro?: string;
+
+  private async initCosmic() {
+    try {
+      const r = await fetch('/assets/astro/catalog.json');
+      if (!r.ok) return;
+      this.catalog = (await r.json()).objects;
+      this.milkyWay = new MilkyWayModel(this.catalog);
+      this.galaxies = new GalaxyField(this.catalog);
+      this.scene.add(this.milkyWay.group, this.galaxies.group);
+      this.milkyWay.setOpacity(0, 600);
+      this.galaxies.setOpacity(0, 600);
+    } catch (e) {
+      console.warn('cosmic layers unavailable', e);
+    }
+  }
   private skySphere?: THREE.Mesh;
 
   private rebuild(defs: BodyDef[]) {
@@ -330,9 +359,19 @@ export class Cosmos extends Realm {
     this.paused = c.paused;
     this.trails = c.trails;
     this.sim.gScale = state.env.cosmos.gravity;
+    this.grabbed = c.grabbed;
     if (c.epoch !== this.epoch) {
       this.epoch = c.epoch;
+      this.revision = c.revision ?? 0;
       this.rebuild(c.bodies);
+    } else if ((c.revision ?? 0) !== this.revision) {
+      // bodies were moved by a command: reload positions & velocities from the authoritative state
+      this.revision = c.revision ?? 0;
+      this.defs = c.bodies.map((d) => ({ ...d }));
+      this.sim.load(this.defs);
+      this.e0 = this.sim.energy();
+      this.centerIdx = this.sim.mostMassive();
+      for (const v of this.views.values()) v.trailN = 0;
     } else {
       const ids = new Set(c.bodies.map((b) => b.id));
       const added = c.bodies.filter((b) => !this.views.has(b.id));
@@ -355,6 +394,8 @@ export class Cosmos extends Realm {
           this.centerIdx = this.sim.mostMassive();
         }
         const v = this.views.get(b.id);
+        const base = (v?.mesh.geometry as THREE.SphereGeometry | undefined)?.parameters?.radius;
+        if (v && base) v.mesh.scale.setScalar(b.radius / base);
         if (v && v.colorKey !== b.color) {
           v.colorKey = b.color;
           const m = v.mesh.material as any;
@@ -379,15 +420,44 @@ export class Cosmos extends Realm {
     if (e.skyColor) this.sky.uniforms.uTint.value.set(e.skyColor);
   }
 
-  /** Display position: positions relative to the heaviest body, radially compressed for visibility. */
+  /**
+   * Display position: the heaviest body is placed by compressing its distance from the
+   * origin; everything else is compressed relative to it. Local structure stays readable
+   * and a moved star visibly moves.
+   */
   displayPos(i: number, out = new THREE.Vector3()) {
     const c = this.centerIdx;
-    const dx = this.sim.pos[i * 3] - this.sim.pos[c * 3], dy = this.sim.pos[i * 3 + 1] - this.sim.pos[c * 3 + 1], dz = this.sim.pos[i * 3 + 2] - this.sim.pos[c * 3 + 2];
-    const r = Math.hypot(dx, dy, dz);
-    if (r < 1e-9) return out.set(0, 0, 0);
-    const k = displayRadius(r) / r;
-    return out.set(dx * k, dy * k, dz * k);
+    const pc = this.sim.getPos(c);
+    const C = compress(pc);
+    if (i === c) return out.set(C[0], C[1], C[2]);
+    const rel = compress([this.sim.pos[i * 3] - pc[0], this.sim.pos[i * 3 + 1] - pc[1], this.sim.pos[i * 3 + 2] - pc[2]]);
+    return out.set(C[0] + rel[0], C[1] + rel[1], C[2] + rel[2]);
   }
+
+  /** Inverse of displayPos for a held body: a display-space point → simulation AU. */
+  displayToAU(id: string, p: THREE.Vector3): [number, number, number] {
+    const i = this.sim.index(id), c = this.centerIdx;
+    if (i === c) return decompress([p.x, p.y, p.z]);
+    const pc = this.sim.getPos(c), C = compress(pc);
+    const rel = decompress([p.x - C[0], p.y - C[1], p.z - C[2]]);
+    return [pc[0] + rel[0], pc[1] + rel[1], pc[2] + rel[2]];
+  }
+
+  /** While held: place the body (in sandbox a held star carries its planets). */
+  holdAt(id: string, au: [number, number, number], sandbox: boolean) {
+    const i = this.sim.index(id);
+    if (i < 0) return;
+    const old = this.sim.getPos(i);
+    const d = [au[0] - old[0], au[1] - old[1], au[2] - old[2]];
+    if (sandbox && i === this.centerIdx) {
+      for (let k = 0; k < this.sim.n; k++) for (let a = 0; a < 3; a++) this.sim.pos[k * 3 + a] += d[a];
+    } else {
+      for (let a = 0; a < 3; a++) { this.sim.pos[i * 3 + a] = au[a]; this.sim.vel[i * 3 + a] = this.sim.vel[this.centerIdx * 3 + a]; }
+    }
+    for (const v of this.views.values()) v.trailN = 0;
+  }
+
+  grabbed?: string;
 
   update(ctx: FrameCtx) {
     super.update(ctx);
@@ -404,6 +474,7 @@ export class Cosmos extends Realm {
       this.displayPos(i, p);
       v.mesh.position.copy(p);
       v.mesh.rotation.y += ctx.dt * 0.6;
+      if (this.grabbed === id) v.mesh.scale.multiplyScalar(1 + Math.sin(ctx.t * 6) * 0.004);
       if (v.light && this.sunWorld) this.sunWorld.copy(p);
       const mat = v.mesh.material as any;
       if (mat.uniforms?.uTime) mat.uniforms.uTime.value = ctx.t;
@@ -420,6 +491,16 @@ export class Cosmos extends Realm {
         }
       }
     }
+    // ——— layer crossfade (solar system ↔ Milky Way ↔ galaxy field) ———
+    const k = Math.min(1, ctx.rdt * 1.6);
+    for (const id of ['solar', 'galactic', 'cosmic'] as const) this.fade[id] += ((this.layer === id ? 1 : 0) - this.fade[id]) * k;
+    const proj = innerHeight / (2 * Math.tan((ctx.camera.fov * Math.PI) / 360));
+    this.system.visible = this.fade.solar > 0.02 && this.bhFade < 0.98;
+    this.starfield.visible = this.fade.solar > 0.02;
+    if (this.skySphere) this.skySphere.visible = this.fade.solar > 0.02;
+    this.milkyWay?.setOpacity(this.fade.galactic, proj);
+    this.galaxies?.setOpacity(this.fade.cosmic, proj);
+    for (const v of this.views.values()) v.label.visible = this.fade.solar > 0.5 && this.bhFade < 0.5;
     const sunP = this.sunWorld ?? new THREE.Vector3();
     // sun direction in view space (for Earth's night lights), clouds drift
     const earth = this.views.get('earth');
@@ -438,7 +519,6 @@ export class Cosmos extends Realm {
     this.bhMat.uniforms.uTime.value = ctx.t;
     this.bhMat.uniforms.uCam.value.copy(ctx.camera.position);
     this.bh.position.copy(ctx.camera.position);
-    for (const v of this.views.values()) v.label.visible = this.bhFade < 0.5;
   }
 
   focusPoint(kind: string, id: string) {
@@ -457,7 +537,24 @@ export class Cosmos extends Realm {
    * the camera pulls back so bodies keep their apparent relation to your size;
    * past planet scale the Sun becomes the anchor. Mass and physics are untouched.
    */
-  applyObserver(size: number, rig: CameraRig) {
+  applyObserver(size: number, rig: CameraRig, focus?: string) {
+    const obj = focus ? resolveAstro(focus) : undefined;
+    this.focusAstro = obj?.id;
+    this.layer = obj ? (obj.where === 'milky_way' ? 'galactic' : 'cosmic') : cosmicLayer(size);
+    if (this.layer !== 'solar') {
+      // each layer has its own units: 100 pc (galactic) or 1 Mpc (cosmic)
+      const unitM = this.layer === 'galactic' ? 3.0857e18 : 3.0857e22;
+      const L = this.layer === 'galactic' ? this.milkyWay : this.galaxies;
+      const target = (obj && L?.positions.get(obj.id)) || (this.layer === 'galactic' && this.milkyWay ? this.milkyWay.centre : new THREE.Vector3());
+      const radius = Math.min(1500, Math.max(0.004, (size / unitM) * 0.6));
+      if (rig.mode !== 'orbit') rig.setOrbit(new THREE.Vector3(), rig.camera.position.clone());
+      rig.speedScale = radius * 0.2;
+      rig.target.copy(target);
+      rig.radius = radius;
+      rig.phi = obj ? 1.25 : this.layer === 'galactic' ? 0.75 : 1.1;
+      rig.follow = undefined;
+      return;
+    }
     const H = cosmosDisplayHeight(size);
     this.observerH = H;
     const anchor = size < 3e8 && this.sim.index('earth') >= 0 ? 'earth' : this.defs.find((d) => d.kind === 'star')?.id ?? this.defs[0]?.id;
@@ -474,7 +571,49 @@ export class Cosmos extends Realm {
     return this.defs.find((d) => d.id === id)?.radius ?? 1;
   }
 
+  private astroCard(s: WorldState): InfoCard {
+    const o = this.focusAstro ? this.catalog.find((c) => c.id === this.focusAstro) : undefined;
+    const meta = o ? resolveAstro(o.id) : undefined;
+    if (o && meta) {
+      const img = o.images[0];
+      return {
+        title: o.name,
+        mode: 'SCIENTIFIC REALITY',
+        subtitle: `${o.kind} · ${formatDistance(meta)} away${o.where === 'milky_way' ? ' · inside the Milky Way' : ''}.`,
+        accuracy: [
+          { tag: 'MEASURED', text: `Sky position from SIMBAD (RA ${o.ra.toFixed(3)}°, Dec ${o.dec.toFixed(3)}°; galactic l ${o.l.toFixed(2)}°, b ${o.b.toFixed(2)}°). Distance: published estimate (${o.ref}).${img ? ` Image: ${img.telescope}.` : ''}` },
+          { tag: 'ARTISTIC', text: img ? 'Shown as a camera-facing impostor of the real telescope image — the true 3-D shape and orientation are not known from a single image (a reconstruction).' : 'No telescope image is bundled for this object; it is drawn as a procedural stand-in (a reconstruction).' },
+        ],
+        stats: [{ label: 'Distance', value: formatDistance(meta) }, { label: 'Size (approx.)', value: `${o.size_kpc >= 1 ? o.size_kpc + ' kpc' : (o.size_kpc * 1000).toFixed(o.size_kpc < 0.01 ? 1 : 0) + ' pc'}` }, { label: 'SIMBAD type', value: o.simbadType || '—' }, { label: 'You are', value: formatLength(s.observer?.size ?? 1.7) }],
+        extraHtml: img ? `<figure class="astro-img"><img src="/assets/astro/${img.file}" alt="${escapeHtml(img.title)}"/><figcaption>${escapeHtml(img.title)} — ${escapeHtml(img.credit)} (${img.license}) · <a href="${img.page}" target="_blank" rel="noopener">source</a></figcaption></figure>` : '',
+      };
+    }
+    if (this.layer === 'galactic') return {
+      title: 'The Milky Way',
+      mode: 'SCIENTIFIC REALITY',
+      subtitle: 'Our galaxy: a barred spiral about 30 kpc across, holding a few hundred billion stars. The Sun sits 8.2 kpc from the centre, between two arms.',
+      accuracy: [
+        { tag: 'MODEL', text: 'Reconstructed from published structure: exponential disk (scale length 2.6 kpc), four spiral arms (pitch ≈ 12°), central bar (27°), dust lanes and H II regions. The real Milky Way has never been photographed from outside.' },
+        { tag: 'MEASURED', text: 'The nebulae and clusters shown are placed at their measured sky positions and published distances (SIMBAD; Gaia-era estimates).' },
+        { tag: 'ARTISTIC', text: 'Individual stars are statistical samples, not real stars; colours are stylised.' },
+      ],
+      stats: [{ label: 'You are', value: formatLength(s.observer?.size ?? 1.7) }, { label: 'Sun → centre', value: '8.18 kpc (GRAVITY 2019)' }],
+    };
+    return {
+      title: 'The nearby universe · 2MASS Redshift Survey',
+      mode: 'SCIENTIFIC REALITY',
+      subtitle: `${(this.galaxies?.count ?? 0).toLocaleString()} real galaxies around the Milky Way, out to ~1.5 billion light-years. The filaments and walls are the cosmic web; the empty band is where our own galaxy’s dust hides the sky.`,
+      accuracy: [
+        { tag: 'MEASURED', text: 'Sky positions, near-infrared brightness, sizes and morphological types from the 2MASS Redshift Survey (Huchra et al. 2012, ApJS 199, 26).' },
+        { tag: 'MODEL', text: 'Distances from redshift via Hubble’s law (H₀ = 70 km/s/Mpc). Galaxies’ own motions smear clusters along the line of sight (“fingers of God”).' },
+        { tag: 'ARTISTIC', text: 'Each galaxy is a glowing point sized by its measured extent; named galaxies use telescope-image impostors.' },
+      ],
+      stats: [{ label: 'Galaxies', value: (this.galaxies?.count ?? 0).toLocaleString() }, { label: 'You are', value: formatLength(s.observer?.size ?? 1.7) }],
+    };
+  }
+
   info(s: WorldState): InfoCard {
+    if (this.layer !== 'solar') return this.astroCard(s);
     const drift = this.e0 ? Math.abs((this.sim.energy() - this.e0) / this.e0) : 0;
     const center = this.sim.mostMassive();
     const rows = this.defs

@@ -12,6 +12,7 @@ import { validateCommands } from './commands.js';
 import type { WorldState } from './worldState.js';
 import { resolveObject, resolveBody } from './worldState.js';
 import { resolveNpc } from './story.js';
+import { resolveAstro } from './astro.js';
 
 export interface ParseOutput {
   narration: string;
@@ -185,6 +186,28 @@ export function parseIntent(input: string, world: WorldState): ParseOutput {
       push({ op: isTransition ? 'atom_transition' : 'atom_set_orbital', ...orb });
       continue;
     }
+    // ——— celestial manipulation, undo/redo ———
+    if (/^ ?(undo|undo (that|it|what i (just )?did)|go back|revert( that)?)\b/.test(t)) { push({ op: 'undo' }); continue; }
+    if (/^ ?redo\b/.test(t)) { push({ op: 'redo' }); continue; }
+    if (/reset (the )?(solar |star )?system/.test(t)) { ensureRealm('cosmos'); push({ op: 'reset_system' }); continue; }
+    if (/sandbox( mode)?/.test(t)) { ensureRealm('cosmos'); push({ op: 'cosmos_set_mode', mode: 'sandbox' }); continue; }
+    if (/physics mode/.test(t)) { ensureRealm('cosmos'); push({ op: 'cosmos_set_mode', mode: 'physics' }); continue; }
+    if (/(let go|drop it|release (it|the)|put it down)/.test(t)) { push({ op: 'cosmos_grab', release: true }); continue; }
+    const grab = t.match(/(?:grab|pick up|hold|let me (?:grab|hold|take)|take hold of|catch)\s+(?:the\s+)?(sun|mercury|venus|earth|mars|jupiter|saturn|uranus|neptune|star a|star b)\b/);
+    if (grab && !/(large|big|tall) enough|make me|in my hands?/.test(t)) { ensureRealm('cosmos'); push({ op: 'cosmos_grab', target: grab[1] }); continue; }
+    const moveT = t.match(/move (?:the\s+)?(\w+) (?:closer to|toward|towards|near) (?:the\s+)?(\w+)/);
+    if (moveT && PLANET_NAMES.test(` ${moveT[1]} `)) { ensureRealm('cosmos'); push({ op: 'cosmos_move_body', target: moveT[1], toward: moveT[2], fraction: 0.4 }); continue; }
+    const orbitT = t.match(/(?:put|move|place) (?:the\s+)?(\w+) (?:in|into|on) (?:an? )?(?:different |new |wider |circular )?orbit(?: at (\d+(?:\.\d+)?) ?au)?/);
+    if (orbitT && PLANET_NAMES.test(` ${orbitT[1]} `)) { ensureRealm('cosmos'); push({ op: 'cosmos_move_body', target: orbitT[1], orbit_au: orbitT[2] ? +orbitT[2] : 2.2 }); continue; }
+    const bigger = t.match(/make (?:the\s+)?(sun|mercury|venus|earth|mars|jupiter|saturn|uranus|neptune) (twice|three times|\d+(?:\.\d+)? times|bigger|larger|smaller)( as)? ?(large|big)?/);
+    if (bigger && !/mass|massive|heav/.test(t)) { ensureRealm('cosmos'); push({ op: 'cosmos_set_body', target: bigger[1], radius_multiplier: /smaller/.test(bigger[2]) ? 0.5 : multiplierFrom(t, 2) }); continue; }
+
+    // ——— real astronomical objects ———
+    if (/(james webb|jwst|webb telescope)/.test(t) && /(show|find|list|galax|object|observ)/.test(t)) { push({ op: 'find_objects', jwst: true }); continue; }
+    const astroQ = t.match(/(?:take me to|fly (?:me )?to|go to|show me|find|visit|travel to|navigate to|zoom (?:in )?(?:to|on))\s+(?:the\s+)?(.+?)\s*$/);
+    const astro = astroQ ? resolveAstro(astroQ[1]) : undefined;
+    if (astro && !/(orbital|electron|portal)/.test(t)) { push({ op: 'go_to_object', name: astro.id }); continue; }
+
     // ——— universal scale: the user's apparent size ———
     const meters = t.match(/make me (\d+(?:\.\d+)?)\s*(m|meters?|metres?|km|kilometers?)\s*(tall|big|high)?/);
     const scalePreset: string | undefined =

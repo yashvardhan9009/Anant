@@ -209,3 +209,10 @@ ul.clues li { margin-bottom: 4px; }
 .bar-in { background: rgba(10,9,20,.62); }
 
 .observer-size { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: .06em; }
+
+.astro-label { font-size: 10.5px; color: #dfe6ff; opacity: .85; letter-spacing: .06em; }
+.astro-label.here { color: var(--gold); }
+.astro-img { margin: 10px 0 0; }
+.astro-img img { width: 100%; border-radius: 10px; display: block; }
+.astro-img figcaption { font-size: 10.5px; color: var(--muted); margin-top: 6px; line-height: 1.4; }
+.astro-img a { color: var(--cyan); }
