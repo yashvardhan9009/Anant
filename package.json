@@ -1,0 +1,40 @@
+{
+  "name": "anant",
+  "version": "0.1.0",
+  "description": "ANANT — AI-powered reality and experience engine. EXPERIENCE THE IMPOSSIBLE.",
+  "scripts": {
+    "postinstall": "node scripts/copy-wasm.mjs && node scripts/fetch-models.mjs",
+    "dev": "node scripts/copy-wasm.mjs && concurrently -k -n api,web \"tsx watch server/index.ts\" \"vite\"",
+    "dev:api": "tsx watch server/index.ts",
+    "dev:web": "vite",
+    "build": "node scripts/copy-wasm.mjs && vite build",
+    "start": "NODE_ENV=production tsx server/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "e2e": "node scripts/e2e.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yashvardhan9009/anant.git"
+  },
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/yashvardhan9009/anant/issues"
+  },
+  "homepage": "https://github.com/yashvardhan9009/anant#readme",
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.18",
+    "three": "^0.169.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/three": "^0.169.0",
+    "concurrently": "^9.1.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.4"
+  },
+  "type": "module"
+}

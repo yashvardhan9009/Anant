@@ -1,0 +1,9 @@
+node_modules
+dist
+data/*.db
+data/*.db-*
+public/mediapipe
+public/models/*.task
+test-results
+.env
+*.log
