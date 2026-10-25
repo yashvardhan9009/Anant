@@ -48,6 +48,8 @@ export abstract class Realm {
   sunWorld?: THREE.Vector3;
   /** object rendered into the environment map (sky) — reflections come from it */
   envSource?: THREE.Object3D;
+  /** an equirectangular HDRI to light the realm with (takes precedence over envSource) */
+  envTexture?: THREE.Texture;
   envDirty = true;
   private envRT?: THREE.WebGLRenderTarget;
   protected built = false;
@@ -86,10 +88,16 @@ export abstract class Realm {
 
   /** (Re)build image-based lighting from the realm's sky so metals and wet surfaces reflect it. */
   buildEnvironment(pmrem: THREE.PMREMGenerator) {
-    if (!this.envSource || !this.envDirty) return;
+    if ((!this.envSource && !this.envTexture) || !this.envDirty) return;
     this.envDirty = false;
+    if (this.envTexture) {
+      this.envRT?.dispose();
+      this.envRT = pmrem.fromEquirectangular(this.envTexture);
+      this.scene.environment = this.envRT.texture;
+      return;
+    }
     const tmp = new THREE.Scene();
-    const clone = this.envSource.clone();
+    const clone = this.envSource!.clone();
     clone.scale.setScalar(0.1);
     tmp.add(clone);
     this.envRT?.dispose();

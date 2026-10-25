@@ -1,0 +1,50 @@
+{
+  "models": [
+    "fir_tree_01",
+    "pine_tree_01",
+    "island_tree_02",
+    "tree_small_02",
+    "dead_tree_trunk",
+    "shrub_01",
+    "shrub_04",
+    "fern_02",
+    "grass_medium_01",
+    "grass_medium_02",
+    "nettle_plant",
+    "rock_moss_set_01",
+    "boulder_01",
+    "tree_stump_01",
+    "wine_barrel_01",
+    "wooden_barrels_01",
+    "wooden_crate_01",
+    "wooden_lantern_01",
+    "Lantern_01",
+    "wooden_bucket_01",
+    "stone_fire_pit",
+    "treasure_chest",
+    "gothic_statue",
+    "antique_estoc",
+    "large_castle_door"
+  ],
+  "textures": [
+    "cobblestone_floor_01",
+    "grassy_cobblestone",
+    "plastered_wall_02",
+    "worn_mossy_plasterwall",
+    "weathered_planks",
+    "clay_roof_tiles_02",
+    "roof_slates_02",
+    "thatch_roof_angled",
+    "forest_ground_04",
+    "leafy_grass",
+    "stone_wall_04",
+    "castle_brick_01",
+    "mossy_rock",
+    "pine_bark"
+  ],
+  "hdris": [
+    "kloppenheim_06_puresky",
+    "kloppenheim_02_puresky",
+    "moonless_golf"
+  ]
+}

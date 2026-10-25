@@ -6,8 +6,12 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { halfTimberHouse, worldBox, M, barrel, crate, grassField, forest, rocks, Ridges, groundMaterial, WIND, addWind } from '../engine/architecture';
 import { softSprite, cloth, applyPBR } from '../engine/textures';
 import { QUALITY } from '../engine/quality';
+import { assets, place } from '../engine/assets';
 import type { WorldState, Env } from '../../shared/worldState';
 import { NPCS, NpcDef, FACTS, StoryState } from '../../shared/story';
+
+/** radius inside which trees use scanned models */
+const NEAR_TREES = QUALITY.low ? 38 : 50;
 
 const WAYPOINTS: Record<string, [number, number]> = {
   gate: [3, 19], square: [2.5, 2], watchtower: [-16, -15], inn: [10, 1], forge: [-9, -3], garden: [13.5, 10], well: [-11, 9.5],
@@ -155,11 +159,12 @@ export class Village extends Realm {
     sign.position.set(9.2, this.groundY(9.2, 0) + 2.9, 0.4);
     sign.castShadow = true;
     this.scene.add(sign);
-    for (const [x, z, k] of [[9, 1.5, 0], [9.6, 2.2, 0], [-8.6, -3.6, 1], [-9.4, -2.8, 0], [-7.8, -4.6, 1], [14.5, 1, 1]] as [number, number, number][]) {
+    for (const [x, z, k] of this.propSpots) {
       const o = k ? crate(0.7) : barrel();
       o.position.set(x, this.groundY(x, z), z);
       o.rotation.y = x * 3;
       this.scene.add(o);
+      this.procProps.push(o);
     }
 
     // Forge fire
@@ -326,7 +331,9 @@ export class Village extends Realm {
       spots.push({ x, y: y - 0.2, z, s: 0.9 + rnd() * 0.8, rot: rnd() * 6.28, kind: rnd() < 0.68 ? 'pine' : 'oak' });
     }
     for (const [x, z] of [[-14, -12], [9, 9.5], [-2, -9], [17, -6], [-17, 12], [24, 14], [-24, 2]]) spots.push({ x, y: this.groundY(x, z) - 0.1, z, s: 0.85, rot: x, kind: 'oak' });
-    this.scene.add(forest(spots));
+    this.treeSpots = spots;
+    this.forestGroup = forest(spots);
+    this.scene.add(this.forestGroup);
     const rs: { x: number; y: number; z: number; s: number }[] = [];
     for (let i = 0; i < 90; i++) {
       const a = rnd() * Math.PI * 2, r = 18 + rnd() * 60;
@@ -334,7 +341,9 @@ export class Village extends Realm {
       if (!clear(x, z)) continue;
       rs.push({ x, y: this.groundY(x, z), z, s: 0.3 + rnd() * (r > 40 ? 2.5 : 0.8) });
     }
-    this.scene.add(rocks(rs));
+    this.rockSpots = rs;
+    this.rockGroup = rocks(rs);
+    this.scene.add(this.rockGroup);
 
     // The Hollow: creeping dark mist at the edge of the world
     this.hollowMat = new THREE.ShaderMaterial({
@@ -351,9 +360,157 @@ export class Village extends Realm {
     this.scene.add(hollow);
 
     for (const def of NPCS) this.addNpc(def);
+    this.terrain = ground;
+    this.upgradeWithAssets();
   }
 
   private footprints: { x: number; z: number; r: number }[] = [];
+  private propSpots: [number, number, number][] = [[9, 1.5, 0], [9.6, 2.2, 0], [-8.6, -3.6, 1], [-9.4, -2.8, 0], [-7.8, -4.6, 1], [14.5, 1, 1]];
+  private procProps: THREE.Object3D[] = [];
+  private treeSpots: { x: number; y: number; z: number; s: number; rot: number; kind: 'pine' | 'oak' }[] = [];
+  private rockSpots: { x: number; y: number; z: number; s: number }[] = [];
+  private forestGroup?: THREE.Object3D;
+  private rockGroup?: THREE.Object3D;
+  private terrain?: THREE.Mesh;
+  private hdr?: { texture: THREE.DataTexture; sunDir: THREE.Vector3; horizon: THREE.Color; zenith: THREE.Color };
+  /** which real assets were loaded (shown in the reality card) */
+  assetReport: string[] = [];
+
+  /**
+   * Replace procedural stand-ins with scanned CC0 assets (Poly Haven) where available.
+   * Runs after the procedural build, so the village is always usable even offline.
+   */
+  private async upgradeWithAssets() {
+    await assets.init();
+    const rep: string[] = [];
+    // 1 — scanned surfaces, applied in place to the shared materials
+    const surf: [THREE.MeshStandardMaterial, string, number][] = [
+      [M.stone(), 'stone_wall_04', 1], [M.plaster(), 'plastered_wall_02', 1], [M.timber(), 'weathered_planks', 1],
+      [M.cobble(), 'cobblestone_floor_01', 3], [M.rock(), 'mossy_rock', 1],
+      [M.roof('#4a2a28'), 'clay_roof_tiles_02', 2.5], [M.roof('#5a3028'), 'clay_roof_tiles_02', 2.5], [M.roof('#6a3b2c'), 'clay_roof_tiles_02', 2.5],
+      [M.roof('#3e3036'), 'roof_slates_02', 2.5], [M.roof('#4a3a3a'), 'roof_slates_02', 2.5], [M.roof('#3a3436'), 'roof_slates_02', 2.5], [M.roof('#3a2c2c'), 'roof_slates_02', 2],
+      [M.roof('#3a4a34'), 'thatch_roof_angled', 2],
+    ];
+    let n = 0;
+    for (const [m, id, rep2] of surf) if (assets.applyTo(m, id, rep2, 1.2)) n++;
+    // scans are neutral-white; weather them to sit in the scene
+    M.plaster().color.set('#c9b9a0');
+    M.stone().color.set('#b8ae9f');
+    M.timber().color.set('#a08a74');
+    if (this.terrain && assets.applyTo(this.terrain.material as THREE.MeshStandardMaterial, 'leafy_grass', 70, 1)) {
+      // vertex colours become gentle tints over the scanned ground
+      const col = this.terrain.geometry.attributes.color as THREE.BufferAttribute;
+      const pos = this.terrain.geometry.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < col.count; i++) {
+        const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+        const p = THREE.MathUtils.clamp(this.pathFactor(x, z), 0, 1);
+        const c = new THREE.Color(1, 1, 1).lerp(new THREE.Color(0.62, 0.5, 0.38), p * 0.9).multiplyScalar(0.85 + vnoise(x * 0.07, z * 0.07) * 0.3);
+        if (y > 5) c.lerp(new THREE.Color(0.55, 0.53, 0.5), THREE.MathUtils.smoothstep(y, 5, 11));
+        if (y > 17) c.lerp(new THREE.Color(1.6, 1.65, 1.75), THREE.MathUtils.smoothstep(y, 17, 23));
+        col.setXYZ(i, c.r, c.g, c.b);
+      }
+      col.needsUpdate = true;
+      n++;
+    }
+    if (n) rep.push(`${n} scanned PBR surfaces`);
+
+    // 2 — real dusk sky (HDRI) lighting the whole scene
+    this.hdr = (await assets.hdri('kloppenheim_06_puresky')) ?? undefined;
+    if (this.hdr) {
+      rep.push('HDRI sky: Kloppenheim 06 (dusk)');
+      if (this.env) this.applyEnv(this.env);
+    }
+
+    const foliage = (mode: 'tree' | 'plant') => (m: THREE.MeshStandardMaterial) => {
+      if (m.alphaTest > 0 || m.transparent) { m.side = THREE.DoubleSide; m.alphaTest = Math.max(m.alphaTest, 0.45); m.transparent = false; }
+      addWind(m, mode);
+    };
+    // 3 — real trees replace the procedural forest
+    const conifers = ['fir_tree_01', 'pine_tree_01'].filter((id) => assets.has('models', id));
+    const broad = ['island_tree_02', 'tree_small_02'].filter((id) => assets.has('models', id));
+    if (conifers.length || broad.length) {
+      const g = new THREE.Group();
+      for (const [list, kind, targetH] of [[conifers, 'pine', 15], [broad, 'oak', 9]] as const) {
+        if (!list.length) continue;
+        // LOD: scanned trees in the near ring (where detail is visible), cheap instanced trees beyond
+        const spots = this.treeSpots.filter((s) => s.kind === kind && Math.hypot(s.x, s.z) < NEAR_TREES);
+        for (let k = 0; k < list.length; k++) {
+          const id = list[k];
+          const size = await assets.size(id);
+          if (!size) continue;
+          const mine = spots.filter((_, i) => i % list.length === k);
+          const tf = mine.map((s) => place(s.x, s.y, s.z, s.rot, (targetH * s.s * (0.8 + ((s.x * 13) % 1 + 1) % 1 * 0.4)) / size.y));
+          const inst = await assets.instanced(id, tf, { patch: foliage('tree') });
+          if (inst) { g.add(inst); rep.push(`${mine.length}× ${id}`); }
+        }
+      }
+      if (g.children.length) {
+        if (this.forestGroup) this.scene.remove(this.forestGroup);
+        this.forestGroup = forest(this.treeSpots.filter((s) => Math.hypot(s.x, s.z) >= NEAR_TREES));
+        this.scene.add(g, this.forestGroup);
+      }
+    }
+
+    // 4 — ground cover: grass clumps, ferns, shrubs, nettles
+    let seed = 99;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const clear = (x: number, z: number, pad = 0) => this.pathFactor(x, z) < 0.1 && !this.footprints.some((f) => (x - f.x) ** 2 + (z - f.z) ** 2 < (f.r + pad) ** 2) && (x - 2.5) ** 2 + (z - 2) ** 2 > 8 ** 2;
+    const scatter = async (id: string, count: number, rMin: number, rMax: number, sMin: number, sMax: number, pad = 0, mode: 'tree' | 'plant' = 'plant') => {
+      const tf: THREE.Matrix4[] = [];
+      for (let tries = 0; tf.length < count && tries < count * 20; tries++) {
+        const a = rnd() * Math.PI * 2, r = rMin + Math.sqrt(rnd()) * (rMax - rMin);
+        const x = Math.cos(a) * r, z = Math.sin(a) * r;
+        if (!clear(x, z, pad) || this.groundY(x, z) > 7) continue;
+        tf.push(place(x, this.groundY(x, z) - 0.03, z, rnd() * 6.28, sMin + rnd() * (sMax - sMin)));
+      }
+      const inst = await assets.instanced(id, tf, { shadows: mode === 'tree', patch: foliage(mode) });
+      if (inst) { this.scene.add(inst); rep.push(`${tf.length}× ${id}`); }
+    };
+    await scatter('grass_medium_01', QUALITY.low ? 120 : 600, 6, 45, 0.8, 1.4);
+    await scatter('grass_medium_02', QUALITY.low ? 80 : 500, 6, 45, 0.8, 1.5);
+    await scatter('fern_02', QUALITY.low ? 40 : 260, 20, 60, 0.8, 1.6);
+    await scatter('nettle_plant', QUALITY.low ? 20 : 120, 8, 40, 0.8, 1.3, 0.5);
+    await scatter('shrub_01', QUALITY.low ? 10 : 60, 14, 50, 0.7, 1.3, 1, 'tree');
+    await scatter('shrub_04', QUALITY.low ? 10 : 60, 10, 45, 0.7, 1.3, 1, 'tree');
+
+    // 5 — rocks, stumps, fallen trunks
+    if (assets.has('models', 'rock_moss_set_01')) {
+      const tf = this.rockSpots.map((r) => place(r.x, r.y - 0.1, r.z, r.x * 7, Math.max(0.5, r.s * 0.9)));
+      const inst = await assets.instanced('rock_moss_set_01', tf);
+      if (inst) { if (this.rockGroup) this.scene.remove(this.rockGroup); this.scene.add(inst); rep.push(`${tf.length}× rock_moss_set_01`); }
+    }
+    await scatter('boulder_01', 14, 34, 70, 1.5, 3.2, 2, 'tree');
+    await scatter('tree_stump_01', 18, 22, 55, 0.8, 1.3, 1, 'tree');
+    await scatter('dead_tree_trunk', 6, 26, 55, 0.9, 1.2, 2, 'tree');
+
+    // 6 — props: barrels, crates, buckets, lanterns, statues
+    const prop = async (id: string, x: number, z: number, yaw = 0, s = 1, dy = 0) => {
+      const o = await assets.clone(id);
+      if (!o) return false;
+      o.position.set(x, this.groundY(x, z) + dy, z);
+      o.rotation.y = yaw;
+      o.scale.setScalar(s);
+      this.scene.add(o);
+      return true;
+    };
+    let props = 0;
+    if (assets.has('models', 'wine_barrel_01') && assets.has('models', 'wooden_crate_01')) {
+      for (const o of this.procProps) this.scene.remove(o);
+      for (const [x, z, k] of this.propSpots) if (await prop(k ? 'wooden_crate_01' : 'wine_barrel_01', x, z, x * 3)) props++;
+    }
+    for (const [id, x, z, yaw] of [
+      ['wooden_barrels_01', 14.8, 2.2, 0.4], ['wooden_bucket_01', -11.2, 12.6, 1], ['wooden_bucket_01', -9.6, -2.4, 2],
+      ['stone_fire_pit', -3.5, 7.5, 0], ['treasure_chest', 16.5, 11.2, -0.8], ['gothic_statue', -0.5, -16.5, 0], ['gothic_statue', 5.5, -16.5, 0],
+      ['tree_stump_01', -6.8, -1.6, 0.5], ['wooden_crate_01', 10.5, -0.2, 0.3],
+    ] as [string, number, number, number][]) if (await prop(id, x, z, yaw)) props++;
+    // hanging lantern under the inn sign
+    if (await prop('Lantern_01', 9.2, 0.4, 0, 1, 2.1)) props++;
+    if (props) rep.push(`${props} scanned props`);
+
+    this.assetReport = rep;
+    this.envDirty = true;
+  }
+
   private ridges = new Ridges();
   private smokes: THREE.Points[] = [];
 
@@ -561,9 +718,35 @@ export class Village extends Realm {
       fogC.lerp(new THREE.Color(e.skyColor), 0.5);
     } else u.uTintAmt.value = 0;
     if (e.weather === 'storm') fogC.multiplyScalar(0.5);
+    // Real photographed sky (HDRI) for dawn/dusk/day when available: it becomes the
+    // background AND the image-based light, and the key light follows its sun.
+    const useHdr = !!this.hdr && e.timeOfDay !== 'night' && !e.skyColor && e.weather !== 'storm';
+    this.sky.mesh.visible = !useHdr;
+    this.scene.background = useHdr ? this.hdr!.texture : null;
+    this.envTexture = useHdr ? this.hdr!.texture : undefined;
+    this.scene.environmentIntensity = useHdr ? 0.45 : 1;
+    this.scene.backgroundIntensity = 0.9;
+    if (useHdr) {
+      const d = this.hdr!.sunDir.clone();
+      if (d.y < 0.06) d.y = 0.06;
+      d.normalize();
+      this.sun.position.copy(d.clone().multiplyScalar(120));
+      this.sunWorld = d.clone().multiplyScalar(800);
+      fogC.copy(this.hdr!.horizon);
+      const lum = fogC.r * 0.2126 + fogC.g * 0.7152 + fogC.b * 0.0722;
+      fogC.multiplyScalar(Math.min(1, 0.16 / Math.max(1e-3, lum)));
+      const z = this.hdr!.zenith;
+      this.hemi.color.copy(z).multiplyScalar(1 / Math.max(1e-3, z.r, z.g, z.b));
+      this.hemi.intensity = 0.12;
+      this.sun.intensity = (e.timeOfDay === 'day' ? 5 : 6) * (e.weather === 'rain' ? 0.45 : 1);
+      this.sun.color.set(e.timeOfDay === 'day' ? '#fff0dc' : '#ffb070');
+      this.look.exposure = e.timeOfDay === 'day' ? 0.7 : 0.85;
+      this.look.contrast = 1.2;
+      this.look.saturation = 1.05;
+    }
     const fog = this.scene.fog as THREE.FogExp2;
     fog.color.copy(fogC);
-    fog.density = 0.003 + e.fog * 0.016 + (e.weather === 'storm' ? 0.008 : 0);
+    fog.density = (useHdr ? 0.0015 + e.fog * 0.008 : 0.003 + e.fog * 0.016) + (e.weather === 'storm' ? 0.008 : 0);
     u.uAurora.value = e.weather === 'aurora' ? 1 : 0;
     this.weather.set(e.weather);
     for (const l of this.lanternLights) l.intensity = 8 * presets.lan;
@@ -671,6 +854,7 @@ export class Village extends Realm {
       accuracy: [
         { tag: 'FICTION', text: 'An original story. Its facts are authored and authoritative: they are stored by the engine, not invented by the AI.' },
         { tag: 'MODEL', text: 'What villagers say is generated live (Nemotron) or by offline dialogue. They can lie or be wrong; only facts they genuinely reveal enter your journal.' },
+        ...(this.assetReport.length ? [{ tag: 'MEASURED' as const, text: `Photogrammetry & scanned assets (CC0, Poly Haven): ${this.assetReport.join(' · ')}.` }] : []),
       ],
       stats: [
         { label: 'Time', value: st.timeOfDay },

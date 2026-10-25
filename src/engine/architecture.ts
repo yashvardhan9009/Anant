@@ -11,7 +11,15 @@ import { QUALITY } from './quality';
 export const WIND = { uTime: { value: 0 }, uWind: { value: 1 } };
 
 /** Inject wind sway into a standard material. `mode` decides how displacement scales with height. */
-export function addWind(m: THREE.MeshStandardMaterial, mode: 'grass' | 'tree' | 'cloth') {
+const WIND_SNIPPETS: Record<'grass' | 'tree' | 'cloth' | 'plant', string> = {
+  grass: 'float k = position.y * position.y; transformed.x += sin(uTime * 2.2 + ph) * 0.22 * k * uWind * gust; transformed.z += cos(uTime * 1.7 + ph) * 0.12 * k * uWind * gust;',
+  tree: 'float k = pow(max(0.0, position.y - 1.5), 2.0) * 0.004; transformed.x += sin(uTime * 1.1 + ph) * k * uWind * gust; transformed.z += cos(uTime * 0.9 + ph) * k * 0.6 * uWind * gust;',
+  plant: 'float k = max(0.0, position.y) * 0.18; transformed.x += sin(uTime * 2.0 + ph) * k * uWind * gust; transformed.z += cos(uTime * 1.6 + ph) * k * 0.6 * uWind * gust;',
+  cloth: 'float k = max(0.0, -position.y + 0.5); transformed.z += sin(uTime * 3.0 + position.x * 3.0) * 0.08 * k * uWind;',
+};
+
+/** Inject wind sway into a standard material. `mode` decides how displacement scales with height. */
+export function addWind(m: THREE.MeshStandardMaterial, mode: keyof typeof WIND_SNIPPETS) {
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uTime = WIND.uTime;
     sh.uniforms.uWind = WIND.uWind;
@@ -25,11 +33,7 @@ export function addWind(m: THREE.MeshStandardMaterial, mode: 'grass' | 'tree' | 
       wpos0 = modelMatrix * wpos0;
       float ph = wpos0.x * 0.35 + wpos0.z * 0.27;
       float gust = 0.6 + 0.4 * sin(uTime * 0.6 + wpos0.x * 0.05);
-      ${mode === 'grass'
-        ? 'float k = position.y * position.y; transformed.x += sin(uTime * 2.2 + ph) * 0.22 * k * uWind * gust; transformed.z += cos(uTime * 1.7 + ph) * 0.12 * k * uWind * gust;'
-        : mode === 'tree'
-          ? 'float k = pow(max(0.0, position.y - 1.5), 2.0) * 0.004; transformed.x += sin(uTime * 1.1 + ph) * k * uWind * gust; transformed.z += cos(uTime * 0.9 + ph) * k * 0.6 * uWind * gust;'
-          : 'float k = max(0.0, -position.y + 0.5); transformed.z += sin(uTime * 3.0 + position.x * 3.0) * 0.08 * k * uWind;'}`,
+      ${WIND_SNIPPETS[mode]}`,
     );
   };
   m.customProgramCacheKey = () => 'wind-' + mode;

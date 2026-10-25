@@ -1,0 +1,393 @@
+{
+  "fir_tree_01": {
+    "name": "Fir Tree 01",
+    "type": "model",
+    "authors": [
+      "Rob Tuytel",
+      "Rico Cilliers"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/fir_tree_01"
+  },
+  "pine_tree_01": {
+    "name": "Pine Tree 01",
+    "type": "model",
+    "authors": [
+      "Rob Tuytel",
+      "Rico Cilliers"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/pine_tree_01"
+  },
+  "island_tree_02": {
+    "name": "Island Tree 02",
+    "type": "model",
+    "authors": [
+      "Rob Tuytel",
+      "Rico Cilliers"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/island_tree_02"
+  },
+  "tree_small_02": {
+    "name": "Tree Small 02",
+    "type": "model",
+    "authors": [
+      "Rico Cilliers"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/tree_small_02"
+  },
+  "dead_tree_trunk": {
+    "name": "Dead Tree Trunk",
+    "type": "model",
+    "authors": [
+      "Rob Tuytel"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/dead_tree_trunk"
+  },
+  "shrub_01": {
+    "name": "Shrub 01",
+    "type": "model",
+    "authors": [
+      "Rico Cilliers"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/shrub_01"
+  },
+  "shrub_04": {
+    "name": "Shrub 04",
+    "type": "model",
+    "authors": [
+      "Rico Cilliers"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/shrub_04"
+  },
+  "fern_02": {
+    "name": "Fern 02",
+    "type": "model",
+    "authors": [
+      "Rob Tuytel",
+      "Rico Cilliers"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/fern_02"
+  },
+  "grass_medium_01": {
+    "name": "Grass Medium 01",
+    "type": "model",
+    "authors": [
+      "Rob Tuytel",
+      "Rico Cilliers"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/grass_medium_01"
+  },
+  "grass_medium_02": {
+    "name": "Grass Medium 02",
+    "type": "model",
+    "authors": [
+      "Rico Cilliers"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/grass_medium_02"
+  },
+  "nettle_plant": {
+    "name": "Nettle Plant",
+    "type": "model",
+    "authors": [
+      "Rob Tuytel",
+      "Rico Cilliers"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/nettle_plant"
+  },
+  "rock_moss_set_01": {
+    "name": "Rock Moss Set 01",
+    "type": "model",
+    "authors": [
+      "Kless Gyzen"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/rock_moss_set_01"
+  },
+  "boulder_01": {
+    "name": "Boulder 01",
+    "type": "model",
+    "authors": [
+      "Rico Cilliers"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/boulder_01"
+  },
+  "tree_stump_01": {
+    "name": "Tree Stump 01",
+    "type": "model",
+    "authors": [
+      "Rob Tuytel"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/tree_stump_01"
+  },
+  "wine_barrel_01": {
+    "name": "Wine Barrel 01",
+    "type": "model",
+    "authors": [
+      "James Ray Cock"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/wine_barrel_01"
+  },
+  "wooden_barrels_01": {
+    "name": "Wooden Barrels 01",
+    "type": "model",
+    "authors": [
+      "James Ray Cock"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/wooden_barrels_01"
+  },
+  "wooden_crate_01": {
+    "name": "Wooden Crate 01",
+    "type": "model",
+    "authors": [
+      "James Ray Cock"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/wooden_crate_01"
+  },
+  "wooden_lantern_01": {
+    "name": "Wooden Lantern 01",
+    "type": "model",
+    "authors": [
+      "James Ray Cock"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/wooden_lantern_01"
+  },
+  "Lantern_01": {
+    "name": "Lantern 01",
+    "type": "model",
+    "authors": [
+      "Rajil Jose Macatangay"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/Lantern_01"
+  },
+  "wooden_bucket_01": {
+    "name": "Wooden Bucket 01",
+    "type": "model",
+    "authors": [
+      "James Ray Cock"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/wooden_bucket_01"
+  },
+  "stone_fire_pit": {
+    "name": "Stone Fire Pit",
+    "type": "model",
+    "authors": [
+      "Sebastian Platen"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/stone_fire_pit"
+  },
+  "treasure_chest": {
+    "name": "Treasure Chest",
+    "type": "model",
+    "authors": [
+      "Rico Cilliers"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/treasure_chest"
+  },
+  "gothic_statue": {
+    "name": "Gothic Statue",
+    "type": "model",
+    "authors": [
+      "Benny Weimer"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/gothic_statue"
+  },
+  "antique_estoc": {
+    "name": "Antique Estoc",
+    "type": "model",
+    "authors": [
+      "James Ray Cock",
+      "Ulan Cabanilla"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/antique_estoc"
+  },
+  "large_castle_door": {
+    "name": "Large Castle Door",
+    "type": "model",
+    "authors": [
+      "Tina"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/large_castle_door"
+  },
+  "cobblestone_floor_01": {
+    "name": "Cobblestone Floor 01",
+    "type": "texture",
+    "authors": [
+      "Rob Tuytel"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/cobblestone_floor_01"
+  },
+  "grassy_cobblestone": {
+    "name": "Grassy Cobblestone",
+    "type": "texture",
+    "authors": [
+      "Dario Barresi",
+      "Charlotte Baglioni"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/grassy_cobblestone"
+  },
+  "plastered_wall_02": {
+    "name": "Plastered Wall 02",
+    "type": "texture",
+    "authors": [
+      "Charlotte Baglioni"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/plastered_wall_02"
+  },
+  "worn_mossy_plasterwall": {
+    "name": "Worn Mossy Plasterwall",
+    "type": "texture",
+    "authors": [
+      "Amal Kumar"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/worn_mossy_plasterwall"
+  },
+  "weathered_planks": {
+    "name": "Weathered Planks",
+    "type": "texture",
+    "authors": [
+      "Dario Barresi",
+      "Dimitrios Savva"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/weathered_planks"
+  },
+  "clay_roof_tiles_02": {
+    "name": "Clay Roof Tiles 02",
+    "type": "texture",
+    "authors": [
+      "Amal Kumar"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/clay_roof_tiles_02"
+  },
+  "roof_slates_02": {
+    "name": "Roof Slates 02",
+    "type": "texture",
+    "authors": [
+      "Rob Tuytel"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/roof_slates_02"
+  },
+  "thatch_roof_angled": {
+    "name": "Thatch Roof Angled",
+    "type": "texture",
+    "authors": [
+      "Rob Tuytel",
+      "Dimitrios Savva"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/thatch_roof_angled"
+  },
+  "forest_ground_04": {
+    "name": "Forest Ground 04",
+    "type": "texture",
+    "authors": [
+      "Rob Tuytel",
+      "Rico Cilliers"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/forest_ground_04"
+  },
+  "leafy_grass": {
+    "name": "Leafy Grass",
+    "type": "texture",
+    "authors": [
+      "Charlotte Baglioni"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/leafy_grass"
+  },
+  "stone_wall_04": {
+    "name": "Stone Wall 04",
+    "type": "texture",
+    "authors": [
+      "Amal Kumar"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/stone_wall_04"
+  },
+  "castle_brick_01": {
+    "name": "Castle Brick 01",
+    "type": "texture",
+    "authors": [
+      "Rob Tuytel"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/castle_brick_01"
+  },
+  "mossy_rock": {
+    "name": "Mossy Rock",
+    "type": "texture",
+    "authors": [
+      "Rob Tuytel"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/mossy_rock"
+  },
+  "pine_bark": {
+    "name": "Pine Bark",
+    "type": "texture",
+    "authors": [
+      "Dimitrios Savva"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/pine_bark"
+  },
+  "kloppenheim_06_puresky": {
+    "name": "Kloppenheim 06 (Pure Sky)",
+    "type": "hdri",
+    "authors": [
+      "Greg Zaal",
+      "Jarod Guest"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/kloppenheim_06_puresky"
+  },
+  "kloppenheim_02_puresky": {
+    "name": "Kloppenheim 02 (Pure Sky)",
+    "type": "hdri",
+    "authors": [
+      "Greg Zaal",
+      "Jarod Guest"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/kloppenheim_02_puresky"
+  },
+  "moonless_golf": {
+    "name": "Moonless Golf",
+    "type": "hdri",
+    "authors": [
+      "Greg Zaal"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/moonless_golf"
+  }
+}
