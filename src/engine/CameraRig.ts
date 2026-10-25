@@ -141,7 +141,7 @@ export class CameraRig {
     if (move.lengthSq() || this.keys.has('e') || this.keys.has('q')) this.idle = 0;
     else this.idle += dt;
     if (this.mode === 'fly') {
-      const sp = this.flySpeed() * (this.keys.has('shift') ? 4 : 1) * dt;
+      const sp = ((realm as any).flySpeed?.() ?? this.flySpeed()) * (this.keys.has('shift') ? 4 : 1) * dt;
       const fwd = this.forward;
       const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
       if (!this.locked) {

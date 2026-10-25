@@ -3,7 +3,8 @@ import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { Realm, InfoCard, FrameCtx } from '../engine/Realm';
 import { makeMotes } from '../engine/fx';
 import { OrbitalVolume } from './atomVolume';
-import { WaterMolecule, LiquidWater, ProtonCore, PROTON_RADIUS_A0, A0_M, niceLength } from './atomScales';
+import { WaterMolecule, ProtonCore, PROTON_RADIUS_A0, A0_M, niceLength, WATER } from './atomScales';
+import { WaterField, PickedAtom } from './waterField';
 import { QUALITY } from '../engine/quality';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { WorldState, Env } from '../../shared/worldState';
@@ -38,11 +39,19 @@ export class Atom extends Realm {
   current = { n: 1, l: 0, m: 0 };
   private vol = new OrbitalVolume();
   private molecule = new WaterMolecule();
-  private liquid = new LiquidWater();
+  field = new WaterField();
+  /** molecule pinned at the quantum view's position (floating origin follows it) */
+  private home = 0;
+  private fieldOrigin = new THREE.Vector3();
+  private prevL = 0;
+  temperature = 300;
   private proton = new ProtonCore();
   /** log10 of physical zoom relative to the 1s framing (powers of ten) */
   zoomL = 0;
   private state0ShowNucleus = true;
+  private fieldFog!: THREE.FogExp2;
+  /** set by the app when the camera should switch between field (fly) and quantum (orbit) views */
+  onViewMode?: (mode: 'field' | 'quantum') => void;
   private camera0Dist(ctx: FrameCtx) { return ctx.camera.position.length(); }
   private layers = { orbital: 1, molecule: 0, liquid: 0, proton: 0 };
   private volFrom: [number, number, number] = [1, 0, 0];
@@ -145,7 +154,9 @@ export class Atom extends Realm {
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTexture('#9ab8ff'), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.55 }));
     glow.scale.setScalar(1.1);
     this.nucleus.add(core, glow);
-    this.scene.add(this.nucleus, this.molecule.mesh, this.liquid.points, this.proton.group);
+    this.scene.add(this.nucleus, this.molecule.mesh, this.field.group, this.proton.group);
+    this.fieldFog = new THREE.FogExp2('#06142a', 0);
+    this.scene.fog = this.fieldFog;
 
     // Most-probable-radius shell
     this.shell = new THREE.Mesh(
@@ -223,6 +234,7 @@ export class Atom extends Realm {
     }
     this.scaleTarget = a.scale;
     this.state0ShowNucleus = a.showNucleus;
+    this.temperature = a.temperature ?? 300;
     this.mat.uniforms.uSlice.value = a.slice ? 1 : 0;
     this.shell.visible = a.highlight;
   }
@@ -295,7 +307,7 @@ export class Atom extends Realm {
     this.layers = {
       orbital: ss(L, -0.55, -0.15) * (1 - 0.75 * ss(L, 1.8, 3.2)),
       molecule: ss(L, -0.1, -0.5) * (1 - ss(L, -1.0, -1.4)),
-      liquid: ss(L, -0.8, -1.2),
+      liquid: ss(L, -0.3, -0.75) * (1 - ss(L, -3.6, -4.2)),
       proton: ss(L, 3.9, 4.7),
     };
     this.vol.layout(S, this.volFrom, this.volTo);
@@ -303,14 +315,25 @@ export class Atom extends Realm {
     u.uFade.value = this.layers.orbital * (1 - ss(L, 0.8, 1.6));
     this.cloud.visible = u.uFade.value > 0.01;
     this.molecule.layout(S, this.layers.molecule, ctx.t);
-    const projScale = innerHeight / (2 * Math.tan((ctx.camera.fov * Math.PI) / 360));
-    this.liquid.layout(S, this.layers.liquid, ctx.frozen ? 0 : ctx.t, projScale);
+    const projScale = 0;
+    // ——— the liquid around you ———
+    this.field.temperature = this.temperature;
+    if (this.layers.liquid > 0.01 && !ctx.frozen) this.field.step(Math.min(0.05, ctx.dt));
+    // floating origin: the home molecule sits exactly where the quantum view is drawn
+    this.fieldOrigin.copy(this.field.absPos(this.home)).sub(WATER.O);
+    this.field.hidden = this.layers.molecule > 0.5 || this.layers.orbital > 0.5 ? this.home : -1;
+    this.field.layout(S, ctx.camera.position, this.fieldOrigin, this.layers.liquid);
+    this.fieldFog.density = this.layers.liquid * 0.035 / Math.max(0.2, S / fitFor(1, 0) / (1e-10 / 3e-10));
+    if (L < -0.6 && this.prevL >= -0.6) this.onViewMode?.('field');
+    if (L > -0.45 && this.prevL <= -0.45) this.onViewMode?.('quantum');
+    this.prevL = L;
+    void projScale;
     // the proton: drawn at TRUE size when that is visible; otherwise a small marker
     const trueR = PROTON_RADIUS_A0 * S;
     this.proton.layout(trueR, this.layers.proton, ctx.t);
     const shown = Math.max(trueR, 0.035 * Math.max(0.3, Math.min(1, this.camera0Dist(ctx) / 16)));
     this.nucleus.scale.setScalar(shown / 0.14);
-    this.nucleus.visible = this.state0ShowNucleus && this.layers.proton < 0.5 && this.layers.liquid < 0.5;
+    this.nucleus.visible = this.state0ShowNucleus && this.layers.proton < 0.5 && this.layers.orbital > 0.2;
     const rmp = mostProbableRadius(this.current.n, this.current.l) * S;
     this.shell.scale.setScalar(rmp);
     u.uShellR.value = this.shell.visible ? rmp : -1;
@@ -345,20 +368,35 @@ export class Atom extends Realm {
     }
   }
 
+  inspect(p: PickedAtom) {
+    this.home = p.molecule;
+  }
+
+  pickables() {
+    return [...super.pickables(), ...(this.layers.liquid > 0.3 ? this.field.pickTargets : [])];
+  }
+
+  /** Fly speed in the micro-world: your body is always ~3.4 display units tall. */
+  flySpeed() {
+    return 4;
+  }
+
   info(s: WorldState): InfoCard {
     const L = this.zoomL;
     const fitNow = fitFor(s.atom.n, s.atom.l) * s.atom.scale;
     const view = niceLength((A0_M / fitNow) * 16).label;
     const zoomStat = { label: 'Field of view ≈', value: view };
-    if (L < -0.95) return {
-      title: 'Liquid water · nanometre scale',
+    if (L < -0.6) return {
+      title: 'Inside liquid water · molecular scale',
       mode: 'SCIENTIFIC REALITY',
-      subtitle: 'Hundreds of water molecules, packed at the real density of liquid water. The atom you were inside is a hydrogen in the bright molecule at the centre. Scroll to zoom back in.',
+      subtitle: `You are ${niceLength((A0_M / fitNow) * 6.5).label} tall, swimming through liquid water. Every red–white trio is one H₂O molecule; cyan threads are hydrogen bonds. Fly with WASD/E/Q, click a hydrogen to dive into it.`,
       accuracy: [
-        { tag: 'MEASURED', text: 'Number density 33.4 molecules/nm³, O–O spacing ≈ 2.75 Å, H₂O geometry (0.958 Å, 104.45°).' },
-        { tag: 'ARTISTIC', text: 'Molecule positions, orientations and the jiggling are illustrative — not a molecular-dynamics simulation. Atoms drawn as soft glows of roughly their van der Waals size.' },
+        { tag: 'MEASURED', text: 'Density 33.4 molecules/nm³ (≈1 g/cm³), O–H 0.958 Å, ∠HOH 104.45°. Hydrogen bonds use the standard geometric criterion (H···O < 2.5 Å) on the live positions.' },
+        { tag: 'SIMULATION', text: `Langevin thermal dynamics at ${this.temperature} K: friction + random kicks, rotational diffusion and short-range O–O repulsion in a periodic box of ${this.field.N} molecules. Time slowed ~10¹³×.` },
+        { tag: 'MODEL', text: 'An approximation, not a full molecular-dynamics force field: no electrostatics or polarisation, so the hydrogen-bond network is not reproduced quantitatively.' },
+        { tag: 'ARTISTIC', text: 'Ball-and-stick spheres with CPK colours are a convention — atoms have no hard surfaces and no colour at this scale.' },
       ],
-      stats: [zoomStat, { label: 'Molecules shown', value: String(this.liquid.points.geometry.attributes.position.count / 3) }],
+      stats: [zoomStat, { label: 'Molecules (periodic)', value: String(this.field.N) }, { label: 'Hydrogen bonds now', value: String(this.field.hbondCount) }, { label: 'Temperature', value: `${this.temperature} K` }],
     };
     if (L < -0.25) return {
       title: 'One water molecule · H₂O',

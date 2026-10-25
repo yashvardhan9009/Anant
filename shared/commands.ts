@@ -109,6 +109,8 @@ export const CommandSchemas = {
     scale: z.number().min(0.0005).max(300000).optional(),
     scale_by: z.number().min(0.001).max(1000).optional(),
     show_nucleus: z.boolean().optional(),
+    /** temperature of the liquid in the micro-world (kelvin) */
+    temperature: z.number().min(1).max(2000).optional(),
     highlight_most_probable: z.boolean().optional(),
     slice: z.boolean().optional(),
   }),
@@ -174,7 +176,7 @@ export const COMMAND_DOCS: Record<CommandOp, string> = {
   set_time: 'Freeze/unfreeze time or change the global time scale. {frozen?, scale?}',
   atom_set_orbital: 'Show hydrogen orbital (n,l,m). Constraints: 1≤n≤4, 0≤l<n, |m|≤l. 1s=(1,0,0), 2s=(2,0,0), 2p=(2,1,0), 3d=(3,2,0).',
   atom_transition: 'Animate an electron transition to (n,l,m) and emit/absorb a photon with the correct Rydberg wavelength. Same constraints as atom_set_orbital.',
-  atom_set_view: 'Adjust atom view / powers-of-ten zoom. scale 1 = one atom; 0.35 ≈ a water molecule; 0.06 ≈ liquid water; 150000 ≈ the proton at true size. {scale? 0.0005..300000, scale_by?, show_nucleus?, highlight_most_probable? (shell where the electron is most likely to be found), slice? (cut-away)}',
+  atom_set_view: 'Adjust atom view / powers-of-ten zoom. scale 1 = one atom; 0.35 ≈ a water molecule; 0.06 ≈ liquid water; 150000 ≈ the proton at true size. {scale? 0.0005..300000, scale_by?, temperature? K (liquid water motion), show_nucleus?, highlight_most_probable? (shell where the electron is most likely to be found), slice? (cut-away)}',
   cosmos_create_system: `Create a star system. preset ∈ ${COSMOS_PRESETS.join('|')}.`,
   cosmos_set_body: 'Change a celestial body. {target (name e.g. "jupiter"), mass_multiplier?, color?}',
   cosmos_add_body: 'Add a planet on a circular orbit. {name, mass (solar masses; Earth≈3e-6, Jupiter≈9.5e-4), distance (AU), color?}',

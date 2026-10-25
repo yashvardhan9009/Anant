@@ -72,6 +72,8 @@ export interface WorldState {
     showNucleus: boolean;
     highlight: boolean;
     slice: boolean;
+    /** kelvin — drives thermal motion of the liquid around the atom */
+    temperature?: number;
     transition?: { id: number; from: [number, number, number]; to: [number, number, number]; lambda: number; kind: string; dE: number };
   };
   cosmos: {
@@ -414,8 +416,10 @@ export function execute(prev: WorldState, cmd: Command, ctx: ExecContext = {}): 
       if (cmd.show_nucleus !== undefined) s.atom.showNucleus = cmd.show_nucleus;
       if (cmd.highlight_most_probable !== undefined) s.atom.highlight = cmd.highlight_most_probable;
       if (cmd.slice !== undefined) s.atom.slice = cmd.slice;
+      if (cmd.temperature !== undefined) s.atom.temperature = cmd.temperature;
       const extra = cmd.highlight_most_probable ? ` The glowing shell marks r = ${mostProbableRadius(s.atom.n, s.atom.l).toFixed(2)} a₀, where the radial probability peaks.` : '';
-      result = { ok: true, op: cmd.op, message: `${describeZoom(s.atom.scale)}${extra}` };
+      const temp = cmd.temperature !== undefined ? ` Water temperature: ${cmd.temperature} K${cmd.temperature < 273 ? ' (supercooled in this model — it does not freeze into ice here)' : cmd.temperature > 373 ? ' (above boiling — this model keeps it liquid)' : ''}.` : '';
+      result = { ok: true, op: cmd.op, message: `${cmd.temperature !== undefined && cmd.scale === undefined && cmd.scale_by === undefined ? '' : describeZoom(s.atom.scale)}${extra}${temp}`.trim() };
       break;
     }
     case 'cosmos_create_system': {

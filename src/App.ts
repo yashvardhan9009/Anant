@@ -78,6 +78,16 @@ export class App implements InputHost {
 
     this.engine.onPortalCross = (id) => this.run([{ op: 'enter_portal', portal: id }], 'walk');
     this.engine.onFrame = (dt) => this.frame(dt);
+    (this.engine.realms.atom as Atom).onViewMode = (mode) => {
+      const rig = this.engine.rig;
+      if (this.engine.active !== 'atom' || this.engine.transitioning) return;
+      if (mode === 'field' && rig.mode !== 'fly') {
+        rig.setFly();
+        this.hud.system('You are now swimming through liquid water. Fly with WASD · E/Q up/down · drag to look · click a hydrogen to dive in · Z/X shrink/grow.', 'ok');
+      } else if (mode === 'quantum' && rig.mode === 'fly') {
+        rig.setOrbit(new THREE.Vector3(), rig.camera.position.clone().normalize().multiplyScalar(16));
+      }
+    };
     const village = this.engine.realms.village as Village;
     village.onApproach = (id) => {
       if (!this.state.story.activeConversation) this.run([{ op: 'talk_to', npc: id }], 'npc');
@@ -549,6 +559,16 @@ export class App implements InputHost {
     } else this.engine.rig.zoom(delta);
   }
 
+  /** Z / X: shrink or grow continuously. Crossing a realm boundary runs the full transition. */
+  nudgeScale(f: number) {
+    const cur = this.state.observer?.size ?? 1.7;
+    const { state } = execute(this.state, { op: 'set_scale', factor: f });
+    if (state.activeRealm !== this.state.activeRealm) { this.run([{ op: 'set_scale', factor: f }], 'gesture'); return; }
+    this.setState(state);
+    if (state.activeRealm !== 'atom') this.engine.realm.applyObserver(state.observer.size, this.engine.rig);
+    void cur;
+  }
+
   toggleFly() {
     const rig = this.engine.rig;
     if (rig.mode === 'fly') {
@@ -569,6 +589,8 @@ export class App implements InputHost {
       case 'h': case '?': this.hud.toggleHelp(); return true;
       case 'g': this.toggleHands(); return true;
       case 'c': this.toggleFly(); return true;
+      case 'z': this.nudgeScale(1 / 1.6); return true;
+      case 'x': this.nudgeScale(1.6); return true;
       case '`': this.showPerf = !this.showPerf; return true;
       case ' ': this.menuOpen() ? this.hud.closeRadial() : this.openCreateMenu(innerWidth / 2, innerHeight / 2); return true;
       case 'f': this.push(new THREE.Vector2(0, 0), 1.5); return true;

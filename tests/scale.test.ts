@@ -65,3 +65,15 @@ describe('universal scale', () => {
     expect(ops('Shrink me until I can see individual atoms')).toEqual([{ op: 'set_scale', preset: 'atoms' }]);
   });
 });
+
+describe('micro-world temperature', () => {
+  it('parses and stores temperature changes', () => {
+    const w = execute(createWorld(), { op: 'go_to_realm', realm: 'atom' }).state;
+    expect(parseIntent('heat the water', w).commands).toEqual([{ op: 'atom_set_view', temperature: 600 }]);
+    expect(parseIntent('set the temperature to 350 kelvin', w).commands).toEqual([{ op: 'atom_set_view', temperature: 350 }]);
+    expect(parseIntent('cool it down to 5 degrees celsius', w).commands).toEqual([{ op: 'atom_set_view', temperature: 278.1 }]);
+    const r = execute(w, { op: 'atom_set_view', temperature: 150 });
+    expect(r.state.atom.temperature).toBe(150);
+    expect(r.result.message).toMatch(/supercooled/);
+  });
+});

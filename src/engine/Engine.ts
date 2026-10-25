@@ -28,6 +28,7 @@ export interface PickResult {
   gate?: RealmId;
   portalId?: string;
   bodyId?: string;
+  fieldAtom?: import('../realms/waterField').PickedAtom;
   point?: THREE.Vector3;
 }
 
@@ -260,6 +261,11 @@ export class Engine {
     if (r instanceof Cosmos) r.scene.traverse((o) => o.userData.bodyId && targets.push(o));
     const hits = this.raycaster.intersectObjects(targets, true);
     for (const h of hits) {
+      if (h.object.userData.waterField && r instanceof Atom) {
+        const a = r.field.pick(h);
+        if (a) return { fieldAtom: a, point: h.point };
+        continue;
+      }
       let o: THREE.Object3D | null = h.object;
       while (o) {
         const u = o.userData;

@@ -213,6 +213,18 @@ export function parseIntent(input: string, world: WorldState): ParseOutput {
     if (/^ ?(make me|i want to be) (much |a lot |way )?(smaller|tiny|tinier)|^ ?shrink me/.test(t)) { push({ op: 'set_scale', factor: /(much|a lot|way)/.test(t) ? 0.001 : 0.1 }); continue; }
     if (/^ ?(make me|i want to be) (much |a lot |way )?(bigger|larger|huge|giant|taller)|^ ?grow me/.test(t)) { push({ op: 'set_scale', factor: /(much|a lot|way)/.test(t) ? 1000 : 10 }); continue; }
 
+    // temperature of the liquid in the micro-world
+    const kelvin = t.match(/(\d+(?:\.\d+)?)\s*(k|kelvin)\b/);
+    const celsius = t.match(/(-?\d+(?:\.\d+)?)\s*(°\s*c|degrees? c(elsius)?|celsius)/);
+    const tempTo = kelvin ? +kelvin[1] : celsius ? +celsius[1] + 273.15
+      : /(boil)/.test(t) ? 373 : /(heat|hotter|warm(er)? (it|the water)|increase the temperature)/.test(t) && /(water|liquid|it|molecule|temperature)/.test(t) ? 600
+      : /(cool|colder|chill|lower the temperature|freeze)/.test(t) && /(water|liquid|it|molecule|temperature)/.test(t) ? 150 : undefined;
+    if (tempTo !== undefined && (realm === 'atom' || /water|molecul/.test(t))) {
+      ensureRealm('atom');
+      push({ op: 'atom_set_view', temperature: Math.min(2000, Math.max(1, +tempTo.toFixed(1))) });
+      continue;
+    }
+
     // powers-of-ten zoom around the atom
     const zoomTo = /(liquid water|glass of water|many molecules|sea of molecules)/.test(t) ? 0.06
       : /(water molecule|h2o|molecule|molecular)/.test(t) ? 0.35
