@@ -56,9 +56,14 @@ export function legendre(l: number, m: number, x: number): number {
 }
 
 /** Real spherical harmonic Y_lm(θ, φ). m>0 → cos(mφ), m<0 → sin(|m|φ). */
+const yNorm = new Map<number, number>();
 export function realY(l: number, m: number, theta: number, phi: number): number {
   const am = Math.abs(m);
-  const N = Math.sqrt(((2 * l + 1) / (4 * Math.PI)) * (factorial(l - am) / factorial(l + am)));
+  let N = yNorm.get(l * 16 + am);
+  if (N === undefined) {
+    N = Math.sqrt(((2 * l + 1) / (4 * Math.PI)) * (factorial(l - am) / factorial(l + am)));
+    yNorm.set(l * 16 + am, N);
+  }
   const P = legendre(l, am, Math.cos(theta));
   if (m === 0) return N * P;
   if (m > 0) return Math.SQRT2 * N * P * Math.cos(m * phi);

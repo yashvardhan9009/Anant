@@ -113,10 +113,10 @@ const DEFAULT_ENV: Record<RealmId, Env> = {
 
 /** Where a traveller arrives in each realm (the return portal stands just behind them). */
 export const ARRIVAL: Record<RealmId, Vec3> = {
-  nexus: [0, 2.4, 14],
+  nexus: [0, 2.4, 19.5],
   atom: [0, 2.2, 16],
   cosmos: [0, 2.2, 34],
-  village: [0, 2.6, 22],
+  village: [2.5, 2.6, 30],
 };
 
 const KIND_COLORS: Record<ObjectKind, string> = {
@@ -258,7 +258,7 @@ export function execute(prev: WorldState, cmd: Command, ctx: ExecContext = {}): 
       // Keep the connection: ensure a return portal exists on the far side.
       let back = s.portals.find((p) => p.id === portal.linkedPortalId) ?? s.portals.find((p) => p.from === portal.to && p.to === from);
       if (!back) {
-        back = { id: nextId('portal'), from: portal.to, to: from, position: ARRIVAL[portal.to], yaw: 0, linkedPortalId: portal.id, createdAt: now };
+        back = { id: nextId('portal'), from: portal.to, to: from, position: ARRIVAL[portal.to], yaw: Math.atan2(-ARRIVAL[portal.to][0], -ARRIVAL[portal.to][2]), linkedPortalId: portal.id, createdAt: now };
         s.portals.push(back);
       }
       portal.linkedPortalId = back.id;
