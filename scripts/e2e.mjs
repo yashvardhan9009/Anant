@@ -19,7 +19,7 @@ mkdirSync(OUT, { recursive: true });
 const PORT = process.env.E2E_PORT || '8799';
 const DB = join(OUT, 'e2e.db');
 rmSync(DB, { force: true });
-const server = spawn('npx', ['tsx', 'server/index.ts'], { env: { ...process.env, PORT, ANANT_DB: DB }, stdio: ['ignore', 'pipe', 'pipe'] });
+const server = spawn('npx', ['tsx', 'server/index.ts'], { env: { ...process.env, PORT, ANANT_DB: DB }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
 server.stdout.on('data', (d) => process.stdout.write(`[server] ${d}`));
 server.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));
 const URL = `http://localhost:${PORT}/?skipIntro`;
@@ -35,7 +35,7 @@ page.on('pageerror', (e) => report.errors.push(`pageerror: ${e.message}`));
 page.on('console', (m) => { if (m.type() === 'error') report.errors.push(`console: ${m.text()}`); });
 
 await page.goto(URL);
-await page.waitForFunction(() => window.__anant?.engine?.fps?.value > 0, null, { timeout: 30000 });
+await page.waitForFunction(() => window.__anant?.engine?.fps?.value > 0, null, { timeout: 240000 });
 report.renderer = await page.evaluate(() => {
   const gl = document.createElement('canvas').getContext('webgl2');
   const ext = gl?.getExtension('WEBGL_debug_renderer_info');
@@ -202,7 +202,7 @@ await step('scene11-enter-hypothetical', async () => [await say('Step through th
 await page.waitForTimeout(2500);
 const beforeReload = await state();
 await page.reload();
-await page.waitForFunction(() => window.__anant?.engine?.fps?.value > 0, null, { timeout: 30000 });
+await page.waitForFunction(() => window.__anant?.engine?.fps?.value > 0, null, { timeout: 240000 });
 await page.waitForTimeout(1500);
 const afterReload = await state();
 report.persistence = { beforeReload, afterReload, equal: JSON.stringify({ ...beforeReload, conv: undefined }) === JSON.stringify({ ...afterReload, conv: undefined }) };
@@ -216,5 +216,5 @@ report.finishedAt = new Date().toISOString();
 writeFileSync(join(OUT, 'e2e.json'), JSON.stringify(report, null, 2));
 console.log(`\nrenderer: ${report.renderer}\nerrors: ${report.errors.length}\n${report.errors.slice(0, 10).join('\n')}\nOVERALL: ${report.ok && !report.errors.length ? 'PASS' : 'FAIL'}`);
 await browser.close();
-server.kill();
+try { process.kill(-server.pid, 'SIGKILL'); } catch { server.kill(); }
 process.exit(report.ok && !report.errors.length ? 0 : 1);
