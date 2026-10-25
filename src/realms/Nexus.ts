@@ -168,11 +168,12 @@ export class Nexus extends Realm {
     this.shards.castShadow = true;
     this.scene.add(this.shards);
 
-    // Three monumental gates
+    // Monumental gates: three realities and one hypothetical universe
     const gateDefs: [RealmId, string, number, string][] = [
-      ['atom', 'ENTER THE ATOM', -0.8, '#7df9ff'],
-      ['cosmos', 'EXPLORE THE COSMOS', 0, '#ffd27d'],
-      ['village', 'LIVING STORY · EMBERFALL', 0.8, '#ff9a6b'],
+      ['atom', 'ENTER THE ATOM', -1.05, '#7df9ff'],
+      ['cosmos', 'EXPLORE THE COSMOS', -0.35, '#ffd27d'],
+      ['village', 'LIVING STORY · EMBERFALL', 0.35, '#ff9a6b'],
+      ['heavy', 'HYPOTHETICAL · HEAVY-GRAVITY UNIVERSE', 1.05, '#ff6bd5'],
     ];
     for (const [realm, label, ang, color] of gateDefs) {
       const g = new THREE.Group();
@@ -252,6 +253,18 @@ export class Nexus extends Realm {
       const ring = new THREE.Mesh(new THREE.RingGeometry(1.0, 1.45, 96), new THREE.MeshStandardMaterial({ color: '#e8d6a8', side: THREE.DoubleSide, transparent: true, opacity: 0.75, roughness: 0.6 }));
       ring.rotation.x = 1.25;
       g.add(planet, ring);
+    } else if (realm === 'heavy') {
+      // a blue-white star with tightly wound, fast orbits: stronger gravity
+      const star = new THREE.Mesh(new THREE.SphereGeometry(0.42, 48, 32), new THREE.MeshBasicMaterial({ color: '#dfe9ff' }));
+      g.add(star);
+      for (let i = 0; i < 3; i++) {
+        const r = new THREE.Mesh(new THREE.TorusGeometry(0.75 + i * 0.32, 0.016, 8, 128), new THREE.MeshBasicMaterial({ color: '#ff6bd5', transparent: true, opacity: 0.9 - i * 0.2 }));
+        r.rotation.set(Math.PI / 2 - 0.35, 0, i * 0.5);
+        const moon = new THREE.Mesh(new THREE.SphereGeometry(0.07, 16, 12), new THREE.MeshStandardMaterial({ color: '#c9d6ff', roughness: 0.5 }));
+        moon.position.set(0.75 + i * 0.32, 0, 0);
+        r.add(moon);
+        g.add(r);
+      }
     } else {
       const gold = new THREE.MeshStandardMaterial({ color: '#ffcf6a', metalness: 1, roughness: 0.2, envMapIntensity: 2 });
       const band = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.68, 0.4, 48, 1, true), gold);

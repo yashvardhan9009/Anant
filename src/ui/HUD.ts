@@ -238,7 +238,7 @@ export class HUD {
   setRealm(info: InfoCard, realm: string) {
     this.title.textContent = info.title;
     this.badge.textContent = info.mode;
-    this.badge.className = `mode-badge ${info.mode.startsWith('SCI') ? 'mode-sci' : info.mode.startsWith('IMAG') ? 'mode-img' : 'mode-hub'}`;
+    this.badge.className = `mode-badge ${info.mode.startsWith('SCI') ? 'mode-sci' : info.mode.startsWith('IMAG') ? 'mode-img' : info.mode.startsWith('HYP') ? 'mode-hyp' : 'mode-hub'}`;
     const acc = info.accuracy.map((a) => `<span class="tag tag-${a.tag}">${a.tag}</span><span>${escapeHtml(a.text)}</span>`).join('');
     const stats = info.stats.map((s) => `<span>${escapeHtml(s.label)}</span><span>${escapeHtml(s.value)}</span>`).join('');
     this.card.innerHTML = `<h3>${escapeHtml(info.title)}</h3><p class="sub">${escapeHtml(info.subtitle)}</p><h4>What you are seeing</h4><div class="acc">${acc}</div><div class="stats">${stats}</div>${info.extraHtml ? `<details${this.detailsOpen ? ' open' : ''}><summary>Data &amp; diagrams</summary>${info.extraHtml}</details>` : ''}`;

@@ -29,7 +29,7 @@ button { font: inherit; color: inherit; }
 /* Labels in 3D */
 .label { font-family: var(--display); font-size: 12px; letter-spacing: 0.08em; color: #fff; text-shadow: 0 0 8px rgba(0,0,0,.9), 0 0 2px #000; white-space: nowrap; pointer-events: none; }
 .label.small { font-size: 10px; color: var(--muted); letter-spacing: 0.04em; }
-.gate-label { color: var(--c); font-size: 11px; letter-spacing: 0.25em; text-shadow: 0 0 12px var(--c); }
+.gate-label { color: var(--c); font-size: 11px; letter-spacing: 0.25em; text-shadow: 0 0 12px var(--c); width: 15ch; white-space: normal; text-align: center; line-height: 1.5; }
 .body-label { font-size: 11px; opacity: 0.85; }
 .npc-label { display: flex; flex-direction: column; align-items: center; gap: 1px; }
 .npc-label b { font-weight: 500; font-size: 12px; }
@@ -46,6 +46,7 @@ button { font: inherit; color: inherit; }
 .mode-sci { color: var(--cyan); }
 .mode-img { color: var(--ember); }
 .mode-hub { color: var(--violet); }
+.mode-hyp { color: #ff6bd5; }
 .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .pill { font-family: var(--mono); font-size: 11px; padding: 7px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--glass); backdrop-filter: blur(12px); cursor: pointer; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; transition: border-color .2s, background .2s; }
 .pill:hover { border-color: rgba(173,160,255,.45); }
@@ -68,6 +69,7 @@ button { font: inherit; color: inherit; }
 .tag-SIMULATION { background: rgba(179,136,255,.16); color: var(--violet); }
 .tag-ARTISTIC { background: rgba(255,154,107,.15); color: var(--ember); }
 .tag-FICTION { background: rgba(255,210,125,.15); color: var(--gold); }
+.tag-HYPOTHETICAL { background: rgba(255,107,213,.16); color: #ff6bd5; }
 .stats { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 12px; }
 .stats span:nth-child(odd) { color: var(--muted); }
 .stats span:nth-child(even) { font-family: var(--mono); text-align: right; }

@@ -9,6 +9,7 @@ const PROFILES: Record<RealmId, { notes: number[]; filter: number; noise: number
   atom: { notes: [65.4, 98, 130.8, 196, 261.6], filter: 1600, noise: 0.012, detune: 12 },
   cosmos: { notes: [41.2, 61.7, 82.4, 123.5], filter: 500, noise: 0.03, detune: 4 },
   village: { notes: [73.4, 110, 146.8, 220], filter: 700, noise: 0.05, detune: 3 },
+  heavy: { notes: [36.7, 55, 73.4, 110], filter: 380, noise: 0.035, detune: 9 },
 };
 
 export class Audio {

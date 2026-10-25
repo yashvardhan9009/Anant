@@ -121,6 +121,7 @@ const DEFAULT_ENV: Record<RealmId, Env> = {
   atom: { weather: 'clear', timeOfDay: 'night', fog: 0, gravity: 1 },
   cosmos: { weather: 'clear', timeOfDay: 'night', fog: 0, gravity: 1 },
   village: { weather: 'clear', timeOfDay: 'dusk', fog: 0.45, gravity: 1 },
+  heavy: { weather: 'clear', timeOfDay: 'night', fog: 0, gravity: 1 },
 };
 
 /** Where a traveller arrives in each realm (the return portal stands just behind them). */
@@ -129,6 +130,7 @@ export const ARRIVAL: Record<RealmId, Vec3> = {
   atom: [0, 2.2, 16],
   cosmos: [0, 2.2, 34],
   village: [2.5, 2.6, 30],
+  heavy: [0, 2.2, 34],
 };
 
 const KIND_COLORS: Record<ObjectKind, string> = {
@@ -227,11 +229,19 @@ export function surfaceHeight(o: SceneObject): number {
 
 const fail = (op: string, message: string): ExecResult => ({ ok: false, op, message });
 
+const HEAVY_LOCKED = new Set(['cosmos_create_system', 'cosmos_set_body', 'cosmos_add_body', 'cosmos_remove_body', 'cosmos_set_mode', 'cosmos_move_body', 'cosmos_grab', 'reset_system', 'cosmos_black_hole']);
+
 export function execute(prev: WorldState, cmd: Command, ctx: ExecContext = {}): { state: WorldState; result: ExecResult } {
   const s: WorldState = structuredClone(prev);
   const now = ctx.now ?? Date.now();
   const nextId = (prefix: string) => `${prefix}-${++s.seq}`;
   let result: ExecResult;
+
+  // The hypothetical universe is a fixed experiment in this build: it can be observed,
+  // sped up or paused, but its bodies are not editable (that lives in our Cosmos).
+  if (s.activeRealm === 'heavy' && HEAVY_LOCKED.has(cmd.op)) {
+    return { state: prev, result: fail(cmd.op, 'The Heavy-Gravity Universe is an observe-only experiment for now — its bodies cannot be edited. Step back to The Cosmos to reshape our solar system, or try “set gravity to 2×” here.') };
+  }
 
   switch (cmd.op) {
     case 'go_to_realm': {
@@ -288,7 +298,7 @@ export function execute(prev: WorldState, cmd: Command, ctx: ExecContext = {}): 
       break;
     }
     case 'spawn_object': {
-      if (s.activeRealm === 'atom' || s.activeRealm === 'cosmos') {
+      if (s.activeRealm === 'atom' || s.activeRealm === 'cosmos' || s.activeRealm === 'heavy') {
         // Scientific realms stay uncluttered by fantasy props unless explicitly placed.
         if (!cmd.position && !cmd.placement && cmd.kind !== 'orb' && cmd.kind !== 'crystal') {
           // still allowed — imagination can intrude on science, but we say so.
@@ -359,7 +369,7 @@ export function execute(prev: WorldState, cmd: Command, ctx: ExecContext = {}): 
       break;
     }
     case 'set_environment': {
-      const sci = s.activeRealm === 'atom' || s.activeRealm === 'cosmos';
+      const sci = s.activeRealm === 'atom' || s.activeRealm === 'cosmos' || s.activeRealm === 'heavy';
       if (sci && (cmd.weather || cmd.time_of_day || cmd.fog !== undefined)) {
         result = fail(cmd.op, s.activeRealm === 'atom'
           ? 'Weather and daylight have no meaning inside a single atom — there is no air at this scale. You can still change the background colour, or try this in the Nexus or Emberfall.'

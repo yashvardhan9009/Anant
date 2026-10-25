@@ -11,6 +11,7 @@ import { resolveAstro, formatDistance } from '../../shared/astro';
 import { escapeHtml } from './Village';
 import type { CameraRig } from '../engine/CameraRig';
 import type { WorldState, Env } from '../../shared/worldState';
+import type { RealmId } from '../../shared/commands';
 import { NBody, BodyDef, displayRadius, compress, decompress } from '../../shared/physics';
 
 const TRAIL = 700;
@@ -37,7 +38,11 @@ interface BodyView {
 }
 
 export class Cosmos extends Realm {
-  readonly id = 'cosmos' as const;
+  readonly id: RealmId = 'cosmos';
+  /** build the Milky Way / galaxy-field layers (off for hypothetical universes) */
+  protected cosmic = true;
+  /** wrap the Sun in real solar imagery (off where the star is not our Sun) */
+  protected starImagery = true;
   controlMode = 'orbit' as const;
   sim = new NBody();
   private defs: BodyDef[] = [];
@@ -64,7 +69,7 @@ export class Cosmos extends Realm {
     su.uNebA.value.set('#3a2a7a'); su.uNebB.value.set('#103e6a'); su.uNebula.value = 0.35; su.uBand.value = 1.1; su.uStars.value = 1.3;
     this.starfield = makeStarfield(QUALITY.low ? 3000 : 6000, 900, 1.2);
     this.scene.add(this.sky.mesh, this.starfield, this.system);
-    this.initCosmic();
+    if (this.cosmic) this.initCosmic();
     // the real sky: Milky Way panorama (Solar System Scope, from ESO/NASA imagery)
     const mw = assets.space('8k_stars_milky_way.jpg');
     if (mw) {
@@ -203,7 +208,7 @@ export class Cosmos extends Realm {
       mesh = new THREE.Mesh(
         new THREE.SphereGeometry(def.radius, 96, 64),
         new THREE.ShaderMaterial({
-          uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(def.color) }, uMap: { value: def.id === 'sun' ? assets.space('2k_sun.jpg') : null }, uHas: { value: def.id === 'sun' && !!assets.space('2k_sun.jpg') ? 1 : 0 } },
+          uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(def.color) }, uMap: { value: def.id === 'sun' && this.starImagery ? assets.space('2k_sun.jpg') : null }, uHas: { value: def.id === 'sun' && this.starImagery && !!assets.space('2k_sun.jpg') ? 1 : 0 } },
           vertexShader: `varying vec3 vP; varying vec3 vN; varying vec3 vV; varying vec2 vUv; void main(){ vP = position; vUv = uv; vN = normalize(normalMatrix*normal); vec4 mv = modelViewMatrix*vec4(position,1.0); vV = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }`,
           fragmentShader: `uniform float uTime; uniform vec3 uColor; uniform sampler2D uMap; uniform float uHas; varying vec3 vP; varying vec3 vN; varying vec3 vV; varying vec2 vUv; ${NOISE_GLSL}
             void main(){
@@ -229,7 +234,7 @@ export class Cosmos extends Realm {
       (glow.material as THREE.SpriteMaterial).opacity = 0.4;
       mesh.add(glow);
       // sunlight in space is white (the Sun's yellow tint is an atmospheric effect on Earth)
-      light = new THREE.PointLight(def.id === 'sun' ? '#fff6ec' : def.color, 4.5, 0, 0);
+      light = new THREE.PointLight(def.id === 'sun' && this.starImagery ? '#fff6ec' : def.color, 4.5, 0, 0);
       mesh.add(light);
       this.sunWorld = new THREE.Vector3();
     } else {
@@ -500,6 +505,8 @@ export class Cosmos extends Realm {
     if (this.skySphere) this.skySphere.visible = this.fade.solar > 0.02;
     this.milkyWay?.setOpacity(this.fade.galactic, proj);
     this.galaxies?.setOpacity(this.fade.cosmic, proj);
+    if (this.milkyWay) { this.milkyWay.focusId = this.focusAstro; this.milkyWay.declutter(ctx.camera); }
+    if (this.galaxies) { this.galaxies.focusId = this.focusAstro; this.galaxies.declutter(ctx.camera); }
     for (const v of this.views.values()) v.label.visible = this.fade.solar > 0.5 && this.bhFade < 0.5;
     const sunP = this.sunWorld ?? new THREE.Vector3();
     // sun direction in view space (for Earth's night lights), clouds drift
@@ -512,10 +519,10 @@ export class Cosmos extends Realm {
     // Black-hole crossfade
     this.bhFade += ((this.bhOn ? 1 : 0) - this.bhFade) * Math.min(1, ctx.rdt * 1.5);
     this.bh.visible = this.bhFade > 0.01;
-    this.system.visible = this.bhFade < 0.98;
+    this.system.visible = this.fade.solar > 0.02 && this.bhFade < 0.98;
     this.bhMat.uniforms.uFade.value = this.bhFade;
     this.look.bloom = this.bhOn ? [0.6, 0.65, 0.85] : [0.35, 0.4, 1.4];
-    this.look.godRays = this.bhOn ? 0 : 0.3;
+    this.look.godRays = this.bhOn ? 0 : 0.3 * this.fade.solar;
     this.bhMat.uniforms.uTime.value = ctx.t;
     this.bhMat.uniforms.uCam.value.copy(ctx.camera.position);
     this.bh.position.copy(ctx.camera.position);
@@ -540,13 +547,13 @@ export class Cosmos extends Realm {
   applyObserver(size: number, rig: CameraRig, focus?: string) {
     const obj = focus ? resolveAstro(focus) : undefined;
     this.focusAstro = obj?.id;
-    this.layer = obj ? (obj.where === 'milky_way' ? 'galactic' : 'cosmic') : cosmicLayer(size);
+    this.layer = !this.cosmic ? 'solar' : obj ? (obj.where === 'milky_way' ? 'galactic' : 'cosmic') : cosmicLayer(size);
     if (this.layer !== 'solar') {
       // each layer has its own units: 100 pc (galactic) or 1 Mpc (cosmic)
       const unitM = this.layer === 'galactic' ? 3.0857e18 : 3.0857e22;
       const L = this.layer === 'galactic' ? this.milkyWay : this.galaxies;
       const target = (obj && L?.positions.get(obj.id)) || (this.layer === 'galactic' && this.milkyWay ? this.milkyWay.centre : new THREE.Vector3());
-      const radius = Math.min(1500, Math.max(0.004, (size / unitM) * 0.6));
+      const radius = Math.min(1500, Math.max(0.004, (size / unitM) * (obj ? 0.6 : this.layer === 'cosmic' ? 0.32 : 0.55)));
       if (rig.mode !== 'orbit') rig.setOrbit(new THREE.Vector3(), rig.camera.position.clone());
       rig.speedScale = radius * 0.2;
       rig.target.copy(target);

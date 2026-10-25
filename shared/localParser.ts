@@ -44,13 +44,15 @@ const KIND_WORDS: [RegExp, ObjectKind][] = [
 ];
 
 const REALM_WORDS: [RegExp, RealmId][] = [
+  [/\b(heavy[- ]gravity|multiverse|(another|alternate|alternative|parallel|hypothetical|different|other) universe|universe (with|where) (stronger|heavier|more) gravity|stronger gravity universe)\b/, 'heavy'],
   [/\b(village|kingdom|fantasy|emberfall|medieval|story|realm of magic|magic(al)? (world|land)|tavern|castle town)\b/, 'village'],
   [/\b(atom|atomic|hydrogen|electron|quantum|orbital|nucleus|subatomic)\b/, 'atom'],
+  [/\b(our (own |real )?universe|real universe|home universe)\b/, 'cosmos'],
   [/\b(space|universe|cosmos|cosmic|solar system|planets?|stars?|galaxy|black hole|orbit|astronom\w*)\b/, 'cosmos'],
   [/\b(nexus|home|hub|beginning|start|lobby|void)\b/, 'nexus'],
 ];
 
-const NEXT_IN_JOURNEY: Record<RealmId, RealmId> = { nexus: 'atom', atom: 'cosmos', cosmos: 'village', village: 'nexus' };
+const NEXT_IN_JOURNEY: Record<RealmId, RealmId> = { nexus: 'atom', atom: 'cosmos', cosmos: 'village', village: 'nexus', heavy: 'cosmos' };
 
 const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, ten: 10, hundred: 100, thousand: 1000, twice: 2, double: 2, triple: 3, thrice: 3, quadruple: 4, half: 0.5 };
 
@@ -342,7 +344,7 @@ export function parseIntent(input: string, world: WorldState): ParseOutput {
     }
 
     // ——— gravity ———
-    if (/gravity|weightless/.test(t)) {
+    if (/gravity|weightless/.test(t) && !/universe/.test(t)) {
       let mult = 1;
       if (/(zero|no|turn off|weightless|remove)/.test(t)) mult = 0;
       else if (/(weaker|lower|reduce|less|decrease|moon)/.test(t)) mult = /half/.test(t) ? 0.5 : 0.3;
@@ -487,6 +489,7 @@ export function suggestFor(realm: RealmId): string {
   switch (realm) {
     case 'atom': return 'Try "switch to a 2p orbital", "excite the electron to 3d", "show where the electron is most likely to be found", or "open a portal to space".';
     case 'cosmos': return 'Try "make Jupiter 1000 times more massive", "slow down the simulation", "show me a black hole", or "open a portal to a fantasy kingdom".';
+    case 'heavy': return 'Try "speed up time", "make gravity 2 times stronger", or "take me back to our universe".';
     case 'village': return 'Try "talk to Captain Ilsa", "create a floating island above the village", "make the sky purple", or "summon a dragon".';
     default: return 'Try "take me inside an atom", "open a portal to space", or "create a glowing crystal".';
   }

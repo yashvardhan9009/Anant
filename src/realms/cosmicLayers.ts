@@ -31,18 +31,18 @@ function gauss() {
 }
 
 const POINT_VS = /* glsl */ `
-  attribute float size; attribute vec3 color; uniform float uProj, uOpacity, uMin, uMax; varying vec3 vC; varying float vA;
+  attribute float size; attribute vec3 color; uniform float uProj, uOpacity, uMin, uMax, uGain, uFloor; varying vec3 vC; varying float vA;
   void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv;
     float px = size * uProj / -mv.z; gl_PointSize = clamp(px, uMin, uMax);
-    vC = color; vA = uOpacity * clamp(px / uMin, 0.25, 1.0); }`;
+    vC = color; vA = uGain * uOpacity * clamp(px / uMin, uFloor, 1.0); }`;
 const POINT_FS = /* glsl */ `
   varying vec3 vC; varying float vA; uniform float uDark;
   void main(){ vec2 q = gl_PointCoord - 0.5; float a = exp(-dot(q, q) * 14.0);
     if (uDark > 0.5) gl_FragColor = vec4(vec3(0.0), a * vA * 0.5); else gl_FragColor = vec4(vC * a * vA, a * vA); }`;
 
-function pointsMaterial(dark = false, min = 1.0, max = 24) {
+function pointsMaterial(dark = false, min = 1.0, max = 24, gain = 1, floor = 0.25) {
   return new THREE.ShaderMaterial({
-    uniforms: { uProj: { value: 600 }, uOpacity: { value: 1 }, uMin: { value: min }, uMax: { value: max }, uDark: { value: dark ? 1 : 0 } },
+    uniforms: { uProj: { value: 600 }, uOpacity: { value: 1 }, uMin: { value: min }, uMax: { value: max }, uDark: { value: dark ? 1 : 0 }, uGain: { value: gain }, uFloor: { value: floor } },
     vertexShader: POINT_VS, fragmentShader: POINT_FS, transparent: true, depthWrite: false,
     blending: dark ? THREE.NormalBlending : THREE.AdditiveBlending,
   });
@@ -105,6 +105,28 @@ function imageTexture(file: string) {
 abstract class Layer {
   group = new THREE.Group();
   opacity = 0;
+  /** labels with a priority (larger = more important) for screen-space decluttering */
+  protected labels: { obj: CSS2DObject; prio: number; id?: string }[] = [];
+  focusId?: string;
+
+  /** Show at most one label per ~70×18 px region, most important first. */
+  declutter(camera: THREE.Camera) {
+    if (this.opacity < 0.5) return;
+    const placed: { x: number; y: number }[] = [];
+    const W = innerWidth, H = innerHeight;
+    const v = new THREE.Vector3();
+    const order = [...this.labels].sort((a, b) => (b.id === this.focusId ? 1e9 : b.prio) - (a.id === this.focusId ? 1e9 : a.prio));
+    for (const l of order) {
+      l.obj.getWorldPosition(v);
+      const camSpace = v.clone().applyMatrix4(camera.matrixWorldInverse);
+      v.project(camera);
+      const x = (v.x * 0.5 + 0.5) * W, y = (-v.y * 0.5 + 0.5) * H;
+      const onScreen = camSpace.z < 0 && Math.abs(v.x) < 1.1 && Math.abs(v.y) < 1.1;
+      const free = onScreen && placed.every((p) => Math.abs(p.x - x) > 90 || Math.abs(p.y - y) > 20);
+      l.obj.visible = free;
+      if (free) placed.push({ x, y });
+    }
+  }
   protected mats: THREE.ShaderMaterial[] = [];
   positions = new Map<string, THREE.Vector3>();
   setOpacity(o: number, projScale: number) {
@@ -114,7 +136,7 @@ abstract class Layer {
       if (m.uniforms.uOpacity) m.uniforms.uOpacity.value = o;
       if (m.uniforms.uProj) m.uniforms.uProj.value = projScale;
     }
-    this.group.traverse((c) => { if (c instanceof CSS2DObject) c.visible = o > 0.5; });
+    if (o <= 0.5) for (const l of this.labels) l.obj.visible = false;
   }
 }
 
@@ -144,8 +166,8 @@ export class MilkyWayModel extends Layer {
         const a = 27 * D2R;
         const bx = gauss() * 18, bz = gauss() * 7, by = gauss() * 5;
         x = bx * Math.cos(a) - bz * Math.sin(a); z = bx * Math.sin(a) + bz * Math.cos(a); y = by;
-        c.setHSL(0.08, 0.6, 0.62 + Math.random() * 0.2);
-        size.push(1.4);
+        c.setHSL(0.08, 0.55, 0.32 + Math.random() * 0.12);
+        size.push(1.1);
       } else {
         const r = Math.min(160, -Rd * Math.log(Math.random() * Math.random() + 1e-6));
         const onArm = Math.random() < 0.62;
@@ -186,10 +208,12 @@ export class MilkyWayModel extends Layer {
     // Sun marker
     const sun = label('☉ Sun — you are here', 'label astro-label here');
     this.group.add(sun);
+    this.labels.push({ obj: sun, prio: 1e6, id: 'sun' });
     this.positions.set('sun', new THREE.Vector3());
     const gc = label('Galactic Centre · Sagittarius A*');
     gc.position.copy(this.centre).add(new THREE.Vector3(0, 6, 0));
     this.group.add(gc);
+    this.labels.push({ obj: gc, prio: 5e5, id: 'sgr_a' });
     // real nebulae and clusters at measured positions
     for (const o of catalog.filter((o) => o.where === 'milky_way' && o.id !== 'sgr_a')) {
       const p = galacticXYZ(o.l, o.b, (o.d_pc ?? 0) / this.U);
@@ -202,6 +226,7 @@ export class MilkyWayModel extends Layer {
       const lb = label(o.name.split(' (')[0]);
       lb.position.copy(p).add(new THREE.Vector3(0, 1.2, 0));
       this.group.add(imp, lb);
+      this.labels.push({ obj: lb, prio: o.images.length * 10 + o.size_kpc, id: o.id });
     }
     this.positions.set('sgr_a', this.centre.clone());
   }
@@ -228,27 +253,31 @@ export class GalaxyField extends Layer {
       for (let i = 0; i < n; i++) {
         pos.set([f[i * 6], f[i * 6 + 1], f[i * 6 + 2]], i * 3);
         const lum = Math.min(2.2, Math.pow(10, -0.4 * (f[i * 6 + 5] - 10.5)));
-        const c = typeCol[f[i * 6 + 4] | 0].clone().multiplyScalar(0.55 + lum * 0.6);
+        const c = typeCol[f[i * 6 + 4] | 0].clone().multiplyScalar(0.9 + lum * 0.9);
         col.set([c.r, c.g, c.b], i * 3);
-        size[i] = (f[i * 6 + 3] / 1000) * 2.5; // kpc → Mpc, with a halo
+        size[i] = (f[i * 6 + 3] / 1000) * 4; // kpc → Mpc, with a halo
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       g.setAttribute('color', new THREE.BufferAttribute(col, 3));
       g.setAttribute('size', new THREE.BufferAttribute(size, 1));
-      const m = pointsMaterial(false, 1.3, 48);
-      this.mats.push(m);
-      const p = new THREE.Points(g, m);
-      p.frustumCulled = false;
-      this.group.add(p);
+      const m = pointsMaterial(false, 3.0, 48, 1, 0.55);
+      // a wide, faint second pass: where galaxies crowd together the glow adds up,
+      // so the filaments and walls of the cosmic web read at a glance
+      const haze = pointsMaterial(false, 14, 70, 0.05, 1);
+      this.mats.push(m, haze);
+      const p = new THREE.Points(g, m), h = new THREE.Points(g, haze);
+      p.frustumCulled = h.frustumCulled = false;
+      this.group.add(h, p);
       this.count = n;
     });
     // our galaxy at the origin
     const mw = impostor(proceduralGalaxyTexture('spiral', 7), 0.03);
     this.mats.push(mw.material as THREE.ShaderMaterial);
-    const mwl = label('Milky Way — home');
+    const mwl = label('Milky Way — home', 'label astro-label here');
     mwl.position.set(0, 0.04, 0);
     this.group.add(mw, mwl);
+    this.labels.push({ obj: mwl, prio: 1e6, id: 'milky_way' });
     this.positions.set('milky_way', new THREE.Vector3());
     // named galaxies: telescope-image impostors (procedural if no image)
     let k = 11;
@@ -262,6 +291,7 @@ export class GalaxyField extends Layer {
       const lb = label(o.name.split(' (')[0]);
       lb.position.copy(p).add(new THREE.Vector3(0, (o.size_kpc / 1000) * 0.9, 0));
       this.group.add(imp, lb);
+      this.labels.push({ obj: lb, prio: o.size_kpc / Math.max(0.05, o.d_mpc ?? 1), id: o.id });
     }
   }
 }

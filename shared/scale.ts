@@ -45,8 +45,10 @@ export function realmForSize(m: number): RealmId | null {
 /** Where to go when a size requires leaving the current realm. */
 export function routeForSize(m: number, current: RealmId): RealmId {
   const r = realmForSize(m);
+  // a hypothetical universe keeps you inside it at astronomical sizes (it has its own sky)
+  if (r === 'cosmos' && current === 'heavy') return current;
   if (r) return r;
-  return current === 'atom' || current === 'cosmos' ? 'nexus' : current;
+  return current === 'atom' || current === 'cosmos' || current === 'heavy' ? 'nexus' : current;
 }
 
 /** Atom-realm zoom that corresponds to an observer size (zoom 1 = one hydrogen atom). */

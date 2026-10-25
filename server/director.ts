@@ -21,6 +21,7 @@ REALMS
 - atom: ${REALM_INFO.atom.blurb} (SCIENTIFIC)
 - cosmos: ${REALM_INFO.cosmos.blurb} (SCIENTIFIC; units AU / years / solar masses)
 - village: ${REALM_INFO.village.blurb} (IMAGINATIVE; NPCs: ilsa, maera, doran, seren)
+- heavy: ${REALM_INFO.heavy.blurb} (HYPOTHETICAL universe — always call it hypothetical; observe-only, bodies cannot be edited)
 
 COMMANDS (the ONLY operations that exist)
 ${docs}

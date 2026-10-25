@@ -1,0 +1,131 @@
+# ANANT — EXPERIENCE THE IMPOSSIBLE.
+
+ANANT is an AI-directed immersive experience engine that runs in the browser. You speak or type an intention and an NVIDIA Nemotron model on **Nebius Token Factory** turns it into **validated, structured commands**. A deterministic engine then executes those commands. The model never runs code.
+
+Built for the Nebius × NVIDIA hackathon.
+
+| | |
+|---|---|
+| ![Hold the Sun](docs/screens/scale-hold-the-sun.png) | ![Liquid water](docs/screens/micro-liquid-water.png) |
+| ![Black hole lensing](docs/screens/black-hole-lensing.png) | ![Milky Way model](docs/screens/milky-way-model.png) |
+| ![Galaxy field](docs/screens/galaxy-field.png) | ![Heavy-gravity universe](docs/screens/heavy-universe.png) |
+
+## What you can do
+
+| Say… | What happens |
+|---|---|
+| “Take me inside an atom” · “Excite the electron to 3d” | Hydrogen |ψ|² ray-marched per pixel from the Schrödinger solutions. Transitions show the real superposition, slowed by about 10¹⁵ and labelled as slowed. |
+| “Make me the size of a water molecule” | You shrink into an endless periodic box of about 2,500 water molecules. They move under Langevin thermal dynamics, and hydrogen bonds are detected live. You can fly freely and click an atom to dive into it. |
+| “Show me the entire solar system” · “Make Jupiter 1000× more massive” | A live N-body simulation (velocity Verlet, AU / yr / M☉) using real planetary masses and orbit sizes. |
+| “Make me large enough to hold the Sun” → “switch to sandbox mode” → “let me grab the Sun” → “undo” | Your apparent size is separate from your mass. In sandbox mode you carry the Sun with the pointer or your hand, and its planets come with it. Undo, redo and reset work on every manipulation. |
+| “Show me thousands of galaxies” · “Take me to Andromeda” · “Show me galaxies observed by James Webb” | 43,498 real galaxies from the 2MASS Redshift Survey and a 24-object catalogue with SIMBAD coordinates and ESA/Hubble and ESA/Webb imagery. |
+| “Show me a black hole” | Schwarzschild null geodesics integrated per pixel, lensing the real Milky Way panorama. |
+| “Open a portal to a universe with stronger gravity” | A **hypothetical** universe where G is 4× ours. The same solar system is recomputed under that law, and every card labels it HYPOTHETICAL. |
+| “Open a portal to a fantasy kingdom” → talk to the villagers | Emberfall, a living story village. Its NPCs remember you, and its mystery can be solved. |
+
+Hand gestures (MediaPipe, optional) control grab, pinch-scale, rotate and drawing a circle to open a portal. Mouse and keyboard work everywhere:
+- **WASD** moves.
+- **C** toggles fly mode.
+- **Z** / **X** shrink and grow you.
+- **Shift+drag** grabs a body.
+
+## Honesty labels
+
+Every realm has a Reality card that tags each statement with one of these labels:
+
+| Tag | Meaning |
+|---|---|
+| **MEASURED** | Observed data, such as 2MRS positions, SIMBAD coordinates and telescope images. |
+| **SIMULATION** | Computed live from physical laws, such as N-body gravity, orbitals, geodesics and water dynamics. |
+| **MODEL** | A stated simplification, such as circular starting orbits, Hubble-law distances and stellar homology. |
+| **ARTISTIC** | A visual choice, such as compressed distances, enlarged planets and colours. |
+| **FICTION** | Emberfall and its people. |
+| **HYPOTHETICAL** | A universe that is not ours. The physics is computed, but the premise is not observed. |
+
+When the AI cannot do something, it says so and does not pretend.
+
+## Running it
+
+```bash
+npm install            # also copies the MediaPipe wasm and downloads the hand model
+cp .env.example .env   # optional: add NEBIUS_API_KEY
+npm run dev            # API on :8787, Vite on :5173
+# or
+npm run build && npm start   # production server on :8787
+```
+
+| Variable | Purpose |
+|---|---|
+| `NEBIUS_API_KEY` | Enables Nemotron on Nebius Token Factory. Without it, ANANT uses a deterministic offline parser and the UI labels it **OFFLINE PARSER**. |
+| `NEBIUS_BASE_URL` | Defaults to `https://api.tokenfactory.nebius.com/v1`. |
+| `ANANT_MODEL` | Pins a model. Otherwise the first available of `nvidia/Llama-3_3-Nemotron-Super-49B-v1_5`, `nvidia/NVIDIA-Nemotron-Nano-9B-v2`, and so on is used. |
+| `ANANT_DB` | SQLite file for saved worlds (default `data/anant.db`). |
+
+Other scripts:
+- `npm test` runs the unit tests (Vitest).
+- `npm run typecheck` runs the TypeScript compiler.
+- `npm run e2e` drives every demo scene in headless Chromium and writes `test-results/e2e.json` plus screenshots.
+- `node scripts/fetch-assets.mjs` and `node scripts/build-astro.mjs` re-download and rebuild the art and astronomy data, which are already committed under `public/assets`.
+
+## Architecture
+
+```
+voice / text / gesture
+        │
+        ▼
+ server/director.ts ── Nemotron (Nebius) ──► JSON reply ──┐
+        │   (no key / failure → shared/localParser.ts)    │
+        ▼                                                 ▼
+ shared/commands.ts  — Zod schemas + semantic checks (max 12 commands, no code)
+        ▼
+ shared/worldState.ts — deterministic reducer execute(state, cmd) → state + result
+        ▼
+ src/App.ts — side effects (travel, camera, undo stack), persistence via server/db.ts (node:sqlite)
+        ▼
+ src/engine/* — Three.js r169 renderer: HDR + MSAA composer, god rays, bloom, grading,
+                portals that render live views of other realms, adaptive resolution
+ src/realms/* — Nexus · Atom (+ water field, scale layers) · Cosmos (+ Milky Way, galaxy
+                field, black hole) · Village (Emberfall) · HeavyUniverse (hypothetical)
+```
+
+- **Universes.** `shared/universes.ts` defines universes as a set of constants plus a status (`observed` or `hypothetical`). `HeavyUniverse` reuses the Cosmos machinery and supplies its own G, bodies and labels. Adding a universe means adding one definition and one realm class.
+- **Scale.** `shared/scale.ts` maps the observer's apparent size (from 10⁻¹⁵ m to 10²⁶ m) to a realm and a view, so “make me smaller” works the same way everywhere.
+
+## Verification
+
+- 107 unit tests cover:
+  - command validation and the reducer;
+  - physics (energy conservation, orbital elements, invertible display compression);
+  - hydrogen normalisation;
+  - the parser, director repair, story, gestures and persistence;
+  - scale, the astronomy catalogue, manipulation with undo, and the multiverse.
+- `npm run e2e` walks the full demo, including the directive scenes, in Chromium:
+  - microscopic water, the galaxy field and Andromeda;
+  - holding, moving and undoing the Sun;
+  - the multiverse portal;
+  - a page reload that checks persistence.
+
+## Known limitations
+
+- **No live Nemotron run is recorded here.** The development container had no `NEBIUS_API_KEY`, so every verification ran on the offline parser. The Nebius endpoint was reachable. The Nemotron path (JSON extraction, one repair attempt, schema validation) is covered by unit tests with a mocked API.
+- **No GPU frame-rate measurement.** Rendering was verified in headless Chromium on SwiftShader (CPU), at about 2–30 fps depending on the scene. These numbers are not representative of a GPU, and no frame rate was measured on real GPU hardware. The renderer adapts its resolution, and `?lowfx` selects a lighter tier.
+- **Visual exaggeration.**
+  - Solar-system distances are compressed (∝√r) and planets are drawn far too large.
+  - Galaxy-field distances come from redshift (H₀ = 70), so peculiar velocities smear clusters.
+  - Named galaxies are image impostors, not 3D models.
+- **The hypothetical universe can only be observed** in this build. Its bodies cannot be edited; gravity and time can still be changed.
+- The water field is a classical, coarse-grained model, not ab-initio molecular dynamics.
+
+## Credits
+
+- **Poly Haven** (CC0): models, PBR textures and HDRIs used in Emberfall and the Nexus. Per-asset authors are listed in `public/assets/CREDITS.json`.
+- **Solar System Scope** (CC BY 4.0): planet, Sun and Milky Way maps, based on NASA and ESO imagery.
+- **ESA/Hubble and ESA/Webb** (CC BY 4.0): galaxy and nebula images. Each image's credit line is shown in the app and stored in `public/assets/astro/catalog.json`.
+- **2MASS Redshift Survey**, Huchra et al. 2012, ApJS 199, 26 (via VizieR J/ApJS/199/26).
+- **SIMBAD** astronomical database, CDS Strasbourg.
+- **MediaPipe Hand Landmarker** (Apache-2.0), Google.
+- Rendering uses Three.js (MIT); validation uses Zod (MIT).
+
+## License
+
+The code is licensed under Apache-2.0 (see `LICENSE`). Third-party assets keep their own licences, as listed above.

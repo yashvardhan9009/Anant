@@ -24,7 +24,7 @@ const LS_KEY = 'anant.world.v1';
 /** Operations that change the world enough to deserve an undo step. */
 const UNDOABLE = new Set(['cosmos_move_body', 'cosmos_set_body', 'cosmos_add_body', 'cosmos_remove_body', 'cosmos_create_system', 'reset_system', 'set_gravity', 'spawn_object', 'delete_object', 'transform_object', 'set_object_property', 'set_environment', 'atom_set_orbital', 'atom_transition', 'cosmos_set_mode']);
 const JOURNEY: RealmId[] = ['atom', 'cosmos', 'village', 'nexus'];
-const REALM_COLOR: Record<RealmId, string> = { nexus: '#b388ff', atom: '#7df9ff', cosmos: '#ffd27d', village: '#ff9a6b' };
+const REALM_COLOR: Record<RealmId, string> = { nexus: '#b388ff', atom: '#7df9ff', cosmos: '#ffd27d', village: '#ff9a6b', heavy: '#ff6bd5' };
 
 export class App implements InputHost {
   engine: Engine;
@@ -139,6 +139,7 @@ export class App implements InputHost {
 
   loadWorld(w: WorldState, resumed = false) {
     w.observer ??= { size: 1.7 }; // worlds saved before the scale engine existed
+    w.env.heavy ??= { weather: 'clear', timeOfDay: 'night', fog: 0, gravity: 1 }; // worlds saved before the multiverse
     this.state = w;
     const e = this.engine;
     e.state = w;
@@ -175,11 +176,12 @@ export class App implements InputHost {
   /** Entering a realm: keep the observer's size where it makes sense, otherwise adopt the realm's natural scale. */
   private applyObserverFor(realm: RealmId) {
     const size = this.state.observer?.size ?? 1.7;
-    const natural = realm === 'atom' ? 1e-10 / this.state.atom.scale : realm === 'cosmos' ? Math.max(size, 1.7) : 1.7;
-    const fits = realm === 'atom' ? size < 1e-6 : realm === 'cosmos' ? true : size >= 1e-6 && size <= 2e3;
+    const space = realm === 'cosmos' || realm === 'heavy';
+    const natural = realm === 'atom' ? 1e-10 / this.state.atom.scale : space ? Math.max(size, 1.7) : 1.7;
+    const fits = realm === 'atom' ? size < 1e-6 : space ? true : size >= 1e-6 && size <= 2e3;
     const use = fits ? size : natural;
     if (use !== size) this.state = { ...this.state, observer: { size: use } };
-    if (realm !== 'cosmos' || size > 2e3) this.engine.realm.applyObserver(use, this.engine.rig);
+    if (!space || size > 2e3) this.engine.realm.applyObserver(use, this.engine.rig);
     this.hud.setObserver(use);
   }
 
@@ -194,7 +196,7 @@ export class App implements InputHost {
     const rig = this.engine.rig;
     const realm = this.engine.realm;
     const f = rig.inFront(realm.id === 'village' ? 9 : 7);
-    const y = realm.id === 'atom' || realm.id === 'cosmos' ? Math.max(1.5, this.engine.camera.position.y * 0.3) : realm.groundY(f.x, f.z) + 2;
+    const y = realm.id === 'atom' || realm.id === 'cosmos' || realm.id === 'heavy' ? Math.max(1.5, this.engine.camera.position.y * 0.3) : realm.groundY(f.x, f.z) + 2;
     return { inFront: [+f.x.toFixed(2), +y.toFixed(2), +f.z.toFixed(2)] as Vec3, yaw: rig.facingYaw };
   }
 
@@ -518,7 +520,7 @@ export class App implements InputHost {
     this.grab.point.copy(p);
     const pos = p.clone().add(this.grab.offset);
     const gy = this.engine.realm.groundY(pos.x, pos.z);
-    if (this.engine.realm.id !== 'atom' && this.engine.realm.id !== 'cosmos') pos.y = Math.max(gy, pos.y);
+    if (this.engine.realm.id !== 'atom' && this.engine.realm.id !== 'cosmos' && this.engine.realm.id !== 'heavy') pos.y = Math.max(gy, pos.y);
     e.holder.position.copy(pos);
   }
 
@@ -589,7 +591,7 @@ export class App implements InputHost {
     let cmd: Command;
     if (kind === 'floating_island' && realm.id === 'village') cmd = { op: 'spawn_object', kind, placement: 'above' };
     else {
-      const hit = realm.id === 'atom' || realm.id === 'cosmos' ? null : this.engine.rayToPlane(ndc, realm.groundY(0, 0));
+      const hit = realm.id === 'atom' || realm.id === 'cosmos' || realm.id === 'heavy' ? null : this.engine.rayToPlane(ndc, realm.groundY(0, 0));
       const cam = this.engine.camera.position;
       if (hit && hit.distanceTo(cam) < 30) {
         const y = realm.groundY(hit.x, hit.z) + (kind === 'dragon' || kind === 'orb' || kind === 'crystal' ? 3 : 0);
@@ -608,7 +610,7 @@ export class App implements InputHost {
     const through = this.engine.camera.position.clone().add(this.engine.rig.forward.multiplyScalar(7));
     const p = this.engine.rayToFacingPlane(ndc, through) ?? through;
     const realm = this.engine.realm;
-    const y = realm.id === 'atom' || realm.id === 'cosmos' ? p.y : Math.max(realm.groundY(p.x, p.z) + 2.3, p.y);
+    const y = realm.id === 'atom' || realm.id === 'cosmos' || realm.id === 'heavy' ? p.y : Math.max(realm.groundY(p.x, p.z) + 2.3, p.y);
     this.run([{ op: 'open_portal', to, position: [+p.x.toFixed(2), +y.toFixed(2), +p.z.toFixed(2)] }], 'gesture').then(() => {
       this.hud.system(`${via === 'hand' ? 'Circle drawn by hand' : 'Circle drawn'} → portal to ${REALM_INFO[to].title}. Say “open a portal to …” to choose any destination.`, 'ok');
     });

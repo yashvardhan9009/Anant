@@ -9,14 +9,15 @@
 import { z } from 'zod';
 import { SCALE_PRESET_IDS, MIN_SIZE, MAX_SIZE } from './scale.js';
 
-export const REALMS = ['nexus', 'atom', 'cosmos', 'village'] as const;
+export const REALMS = ['nexus', 'atom', 'cosmos', 'village', 'heavy'] as const;
 export type RealmId = (typeof REALMS)[number];
 
-export const REALM_INFO: Record<RealmId, { title: string; mode: 'scientific' | 'imaginative' | 'hub'; blurb: string }> = {
+export const REALM_INFO: Record<RealmId, { title: string; mode: 'scientific' | 'imaginative' | 'hub' | 'hypothetical'; blurb: string }> = {
   nexus: { title: 'The Nexus', mode: 'hub', blurb: 'The threshold between realities.' },
   atom: { title: 'Inside the Hydrogen Atom', mode: 'scientific', blurb: 'Electron probability density from the Schrödinger equation.' },
   cosmos: { title: 'The Cosmos', mode: 'scientific', blurb: 'A live N-body gravitational simulation.' },
   village: { title: 'Emberfall', mode: 'imaginative', blurb: 'A dark-fantasy village with a stolen crown and living people.' },
+  heavy: { title: 'Heavy-Gravity Universe', mode: 'hypothetical', blurb: 'A hypothetical universe where G is 4× ours; the solar system recomputed under that law.' },
 };
 
 /** Procedurally generated object kinds the engine can actually build. */

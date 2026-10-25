@@ -5,11 +5,11 @@ import { ObjectLayer } from './ObjectLayer';
 import { Sparks } from './fx';
 import { Look, DEFAULT_LOOK } from './look';
 
-export type AccuracyTag = 'MEASURED' | 'MODEL' | 'SIMULATION' | 'ARTISTIC' | 'FICTION';
+export type AccuracyTag = 'MEASURED' | 'MODEL' | 'SIMULATION' | 'ARTISTIC' | 'FICTION' | 'HYPOTHETICAL';
 
 export interface InfoCard {
   title: string;
-  mode: 'SCIENTIFIC REALITY' | 'IMAGINATIVE REALITY' | 'THE THRESHOLD';
+  mode: 'SCIENTIFIC REALITY' | 'IMAGINATIVE REALITY' | 'THE THRESHOLD' | 'HYPOTHETICAL UNIVERSE';
   subtitle: string;
   accuracy: { tag: AccuracyTag; text: string }[];
   stats: { label: string; value: string }[];

@@ -63,7 +63,7 @@ async function say(text) {
 }
 const state = () => page.evaluate(() => {
   const s = window.__anant.state;
-  return { realm: s.activeRealm, objects: s.objects.map((o) => `${o.kind}@${o.realm}`), portals: s.portals.map((p) => `${p.from}->${p.to}`), atom: [s.atom.n, s.atom.l, s.atom.m], jupiter: s.cosmos.bodies.find((b) => b.id === 'jupiter')?.mass, conv: s.story.activeConversation, knows: s.story.playerKnows.length, outcome: s.story.outcome?.kind };
+  return { realm: s.activeRealm, size: s.observer?.size, focus: s.focus?.id, sun: s.cosmos.bodies.find((b) => b.id === 'sun')?.pos, objects: s.objects.map((o) => `${o.kind}@${o.realm}`), portals: s.portals.map((p) => `${p.from}->${p.to}`), atom: [s.atom.n, s.atom.l, s.atom.m], jupiter: s.cosmos.bodies.find((b) => b.id === 'jupiter')?.mass, conv: s.story.activeConversation, knows: s.story.playerKnows.length, outcome: s.story.outcome?.kind };
 });
 async function step(name, fn, expect) {
   const r = { name };
@@ -178,6 +178,25 @@ await step('scene6-gesture-manipulate', async () => {
 }, (s, a) => (a[0].scale > 2.2 * 1.4 && Math.abs(a[0].rot - 0.8) < 1e-3 && a[0].after.join() !== a[0].before.join()) || JSON.stringify(a[0]));
 await step('scene7-unscripted', async () => [await say('Summon a huge red dragon and make the sky purple'), await say('Make gravity weaker then create a storm')], (s) => s.objects.includes('dragon@village') || `objects ${s.objects}`);
 await step('scene7-honest-unsupported', async () => [await say('Show me what happened here 100 years ago'), await say('Let me talk to the king')], () => true);
+
+// ——— Master directive scenes: scale, micro-world, cosmic zoom, manipulation, multiverse ———
+await step('scene8-microscopic', async () => [await say('Make me the size of a water molecule')], (s) => (s.realm === 'atom' && s.size < 1e-8) || `realm ${s.realm} size ${s.size}`);
+await step('scene8-water-field', async () => [await page.evaluate(() => { const a = window.__anant.engine.realms.atom; return { molecules: a.field.N, hbonds: a.field.hbondCount }; })], (s, a) => a[0].molecules > 1000 || JSON.stringify(a[0]));
+await step('scene9-thousands-of-galaxies', async () => [await say('Show me thousands of galaxies')], (s) => (s.realm === 'cosmos' && s.size > 1e24) || `realm ${s.realm} size ${s.size}`);
+await step('scene9-inspect-andromeda', async () => [await say('Take me to Andromeda')], (s) => s.focus === 'andromeda' || `focus ${s.focus}`);
+await step('scene10-hold-the-sun', async () => [await say('Show me the entire solar system'), await say('Make me large enough to hold the Sun'), await say('Switch to sandbox mode')], (s) => (s.size > 1e9 && s.size < 1e11) || `size ${s.size}`);
+let sunBefore;
+await step('scene10-grab-move-sun', async () => {
+  sunBefore = (await state()).sun;
+  const a = await say('Let me grab the Sun');
+  for (let i = 0; i <= 10; i++) { await page.evaluate((i) => window.__anant.moveBody({ x: 0.05 * i, y: -0.05 * i, isVector2: true }), i); await page.waitForTimeout(80); }
+  await page.evaluate(() => window.__anant.releaseBody());
+  await page.waitForTimeout(600);
+  return [a];
+}, (s) => Math.hypot(...s.sun.map((v, k) => v - sunBefore[k])) > 0.5 || `sun barely moved ${s.sun}`);
+await step('scene10-undo', async () => [await say('Undo what I just did')], (s) => Math.hypot(...s.sun.map((v, k) => v - sunBefore[k])) < 0.05 || `sun ${s.sun} vs ${sunBefore}`);
+await step('scene11-multiverse-portal', async () => [await say('Return to human size'), await say('Open a portal to a universe with stronger gravity')], (s) => s.portals.some((p) => p.endsWith('->heavy')) || `portals ${s.portals}`);
+await step('scene11-enter-hypothetical', async () => [await say('Step through the portal')], (s) => s.realm === 'heavy' || `realm ${s.realm}`);
 
 // Persistence: reload the page — everything must come back from SQLite.
 await page.waitForTimeout(2500);

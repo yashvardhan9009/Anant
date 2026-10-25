@@ -19,6 +19,7 @@ import { Nexus } from '../realms/Nexus';
 import { Atom } from '../realms/Atom';
 import { Cosmos } from '../realms/Cosmos';
 import { Village } from '../realms/Village';
+import { HeavyUniverse } from '../realms/HeavyUniverse';
 import { QUALITY } from './quality';
 import { GradeShader, GodRayShader, Look } from './look';
 
@@ -73,7 +74,7 @@ export class Engine {
     this.portalCam = this.camera.clone();
     this.rig = new CameraRig(this.camera);
 
-    this.realms = { nexus: new Nexus(), atom: new Atom(), cosmos: new Cosmos(), village: new Village() };
+    this.realms = { nexus: new Nexus(), atom: new Atom(), cosmos: new Cosmos(), village: new Village(), heavy: new HeavyUniverse() };
     this.realms.nexus.ensureBuilt();
 
     // HDR, multisampled composer: render → god rays → bloom (HDR) → tone map → film grade
@@ -180,7 +181,7 @@ export class Engine {
     if (r.controlMode === 'orbit') {
       const target = new THREE.Vector3();
       const camPos = base.clone().addScaledVector(n, 3.5);
-      camPos.y = realm === 'cosmos' ? 14 : 4;
+      camPos.y = realm === 'cosmos' || realm === 'heavy' ? 14 : 4;
       this.rig.setOrbit(target, camPos);
     } else {
       this.rig.setWalk(base.clone().addScaledVector(n, 3.5), Math.atan2(-n.x, -n.z), r.arrivalPitch);
@@ -312,7 +313,7 @@ export class Engine {
       const exitYaw = exit?.yaw ?? Math.atan2(-exitPos.x, -exitPos.z);
       if (dest.controlMode === 'orbit') {
         // orbit realms: frame the scene centre from the arrival side
-        exitPos.y = Math.max(exitPos.y, pv.state.to === 'cosmos' ? 10 : 3);
+        exitPos.y = Math.max(exitPos.y, pv.state.to === 'cosmos' || pv.state.to === 'heavy' ? 10 : 3);
       }
       exitMat.compose(exitPos, new THREE.Quaternion().setFromEuler(new THREE.Euler(0, exitYaw, 0)), new THREE.Vector3(1, 1, 1));
       pv.group.updateMatrixWorld();
