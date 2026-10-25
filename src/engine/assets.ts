@@ -9,10 +9,11 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 
 const BASE = '/assets';
 
-interface Manifest { models: string[]; textures: string[]; hdris: string[] }
+interface Manifest { models: string[]; textures: string[]; hdris: string[]; space?: string[] }
 
 class AssetLibrary {
-  manifest: Manifest = { models: [], textures: [], hdris: [] };
+  manifest: Manifest = { models: [], textures: [], hdris: [], space: [] };
+  private spaceCache = new Map<string, THREE.Texture | null>();
   private gltf = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   private tex = new THREE.TextureLoader();
   private models = new Map<string, Promise<GLTF | null>>();
@@ -25,7 +26,21 @@ class AssetLibrary {
   }
 
   has(kind: keyof Manifest, id: string) {
-    return this.manifest[kind].includes(id);
+    return (this.manifest[kind] ?? []).includes(id);
+  }
+
+  /** Planetary / sky imagery (Solar System Scope, CC BY 4.0). Null if not downloaded. */
+  space(file: string, colour = true): THREE.Texture | null {
+    if (!this.spaceCache.has(file)) {
+      if (!this.has('space', file)) this.spaceCache.set(file, null);
+      else {
+        const t = this.tex.load(`${BASE}/space/${file}`);
+        if (colour) t.colorSpace = THREE.SRGBColorSpace;
+        t.anisotropy = 8;
+        this.spaceCache.set(file, t);
+      }
+    }
+    return this.spaceCache.get(file)!;
   }
 
   model(id: string): Promise<GLTF | null> {

@@ -3,8 +3,8 @@ import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { Realm, InfoCard, FrameCtx } from '../engine/Realm';
 import { makeSkyDome, makeStarfield, NOISE_GLSL } from '../engine/fx';
 import { radialTexture } from './Atom';
-import { Lensflare, LensflareElement } from 'three/examples/jsm/objects/Lensflare.js';
 import { QUALITY } from '../engine/quality';
+import { assets } from '../engine/assets';
 import type { WorldState, Env } from '../../shared/worldState';
 import { NBody, BodyDef, displayRadius } from '../../shared/physics';
 
@@ -47,17 +47,26 @@ export class Cosmos extends Realm {
     const su = this.sky.uniforms;
     su.uHorizon.value.set('#04050c'); su.uTop.value.set('#010104'); su.uBottom.value.set('#010104');
     su.uNebA.value.set('#3a2a7a'); su.uNebB.value.set('#103e6a'); su.uNebula.value = 0.35; su.uBand.value = 1.1; su.uStars.value = 1.3;
-    this.scene.add(this.sky.mesh, makeStarfield(9000, 900, 1.3), this.system);
+    this.scene.add(this.sky.mesh, makeStarfield(QUALITY.low ? 3000 : 6000, 900, 1.2), this.system);
+    // the real sky: Milky Way panorama (Solar System Scope, from ESO/NASA imagery)
+    const mw = assets.space('8k_stars_milky_way.jpg');
+    if (mw) {
+      mw.mapping = THREE.EquirectangularReflectionMapping;
+      this.scene.background = mw;
+      this.scene.backgroundIntensity = 1.3;
+      this.scene.backgroundRotation.set(0.35, 0, 0.25);
+      this.sky.mesh.visible = false;
+    }
     this.scene.add(new THREE.AmbientLight('#1a2030', 0.25));
 
     // Black hole: a sphere around the camera; the fragment shader integrates
     // photon paths in the Schwarzschild metric (units: r_s = 1).
     this.bhMat = new THREE.ShaderMaterial({
-      uniforms: { uCam: { value: new THREE.Vector3() }, uTime: { value: 0 }, uFade: { value: 0 }, uScale: { value: 3 } },
+      uniforms: { uCam: { value: new THREE.Vector3() }, uTime: { value: 0 }, uFade: { value: 0 }, uScale: { value: 0.85 }, uSky: { value: assets.space('8k_stars_milky_way.jpg') }, uHasSky: { value: assets.space('8k_stars_milky_way.jpg') ? 1 : 0 } },
       side: THREE.BackSide, depthWrite: false, depthTest: false, transparent: true,
       vertexShader: /* glsl */ `varying vec3 vW; void main(){ vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; gl_Position.z = gl_Position.w*0.999; }`,
       fragmentShader: /* glsl */ `
-        uniform vec3 uCam; uniform float uTime, uFade, uScale; varying vec3 vW;
+        uniform vec3 uCam; uniform float uTime, uFade, uScale, uHasSky; uniform sampler2D uSky; varying vec3 vW;
         ${NOISE_GLSL}
         vec3 stars(vec3 d){
           vec3 c = vec3(0.0);
@@ -83,7 +92,7 @@ export class Cosmos extends Realm {
             float r = length(p);
             minR = min(minR, r);
             if (r < 1.0) { captured = true; break; }
-            if (r > 80.0 && dot(p, v) > 0.0) break;
+            if (r > 120.0 && dot(p, v) > 0.0) break;
             float dt = clamp(0.06*r, 0.015, 1.5);
             vec3 pPrev = p;
             // null geodesic in Schwarzschild spacetime: d²x/dλ² = −(3/2) h² x / r⁵
@@ -101,13 +110,23 @@ export class Cosmos extends Realm {
                 float dop = pow(max(0.15, 1.0 + 0.7*dot(vel, -rd)), 3.0);  // relativistic beaming (approx.)
                 float edge = smoothstep(3.0, 3.4, rq) * smoothstep(16.0, 9.0, rq);
                 float a = edge * clamp(0.35 + streak*0.95, 0.0, 1.0);
-                col += (1.0-alpha) * hot * a * temp * temp * 9.0 * dop;
+                col += (1.0-alpha) * hot * a * temp * temp * 2.4 * dop;
                 alpha += (1.0-alpha) * a * 0.92;
                 if (alpha > 0.985) break;
               }
             }
           }
-          if (!captured) col += (1.0-alpha) * stars(normalize(v));
+          if (!captured) {
+            vec3 d = normalize(v);
+            vec3 bg = stars(d);
+            if (uHasSky > 0.5) {
+              // the real Milky Way, seen along the BENT ray — this is gravitational lensing of actual sky imagery
+              vec2 uv = vec2(atan(d.z, d.x) * 0.15915 + 0.5, asin(clamp(d.y, -1.0, 1.0)) * 0.31831 + 0.5);
+              vec3 m = texture2D(uSky, uv).rgb;
+              bg = m * 1.5 + bg * 0.3;
+            }
+            col += (1.0-alpha) * bg;
+          }
           // thin photon ring at the edge of the shadow (rays that skimmed r ≈ 1.5 r_s)
           col += (1.0-alpha) * vec3(1.0,0.82,0.6) * exp(-pow((minR-1.52)/0.05, 2.0)) * 2.5 * float(!captured);
           gl_FragColor = vec4(col, uFade);
@@ -157,9 +176,9 @@ export class Cosmos extends Realm {
       mesh = new THREE.Mesh(
         new THREE.SphereGeometry(def.radius, 96, 64),
         new THREE.ShaderMaterial({
-          uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(def.color) } },
-          vertexShader: `varying vec3 vP; varying vec3 vN; varying vec3 vV; void main(){ vP = position; vN = normalize(normalMatrix*normal); vec4 mv = modelViewMatrix*vec4(position,1.0); vV = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }`,
-          fragmentShader: `uniform float uTime; uniform vec3 uColor; varying vec3 vP; varying vec3 vN; varying vec3 vV; ${NOISE_GLSL}
+          uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(def.color) }, uMap: { value: def.id === 'sun' ? assets.space('2k_sun.jpg') : null }, uHas: { value: def.id === 'sun' && !!assets.space('2k_sun.jpg') ? 1 : 0 } },
+          vertexShader: `varying vec3 vP; varying vec3 vN; varying vec3 vV; varying vec2 vUv; void main(){ vP = position; vUv = uv; vN = normalize(normalMatrix*normal); vec4 mv = modelViewMatrix*vec4(position,1.0); vV = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }`,
+          fragmentShader: `uniform float uTime; uniform vec3 uColor; uniform sampler2D uMap; uniform float uHas; varying vec3 vP; varying vec3 vN; varying vec3 vV; varying vec2 vUv; ${NOISE_GLSL}
             void main(){
               vec3 q = normalize(vP);
               float gran = fbm(q*14.0 + uTime*0.08);                // convection cells
@@ -167,27 +186,32 @@ export class Cosmos extends Realm {
               float mu = max(dot(vN, vV), 0.0);
               float limb = 0.35 + 0.65*pow(mu, 0.6);                  // limb darkening
               vec3 c = uColor * (1.6 + gran*1.4) * limb * (1.0 - spots*0.75);
+              if (uHas > 0.5) {
+                // real solar imagery, slowly boiling via flow distortion
+                vec2 flow = vec2(fbm(q*6.0 + uTime*0.05), fbm(q*6.0 - uTime*0.04)) - 0.5;
+                vec3 t1 = texture2D(uMap, vUv + flow*0.006 + vec2(uTime*0.0008, 0.0)).rgb;
+                vec3 t2 = texture2D(uMap, vUv - flow*0.006).rgb;
+                c = pow(mix(t1, t2, 0.5 + 0.5*sin(uTime*0.3)), vec3(1.2)) * vec3(3.4, 2.6, 1.9) * limb * (0.85 + gran*0.3);
+              }
               c += vec3(1.0,0.6,0.25) * pow(1.0-mu, 3.0) * 0.6;
               gl_FragColor = vec4(c, 1.0); }`,
         }),
       );
       glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: coronaTexture(), color: def.color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-      glow.scale.setScalar(def.radius * 4.2);
-      (glow.material as THREE.SpriteMaterial).opacity = 0.55;
+      glow.scale.setScalar(def.radius * 3.4);
+      (glow.material as THREE.SpriteMaterial).opacity = 0.4;
       mesh.add(glow);
-      light = new THREE.PointLight(def.color, 4, 0, 0);
-      if (!QUALITY.low) {
-        const flare = new Lensflare();
-        flare.addElement(new LensflareElement(flareTexture('main'), 220, 0, new THREE.Color(def.color)));
-        flare.addElement(new LensflareElement(flareTexture('ring'), 70, 0.45));
-        flare.addElement(new LensflareElement(flareTexture('ring'), 120, 0.7));
-        flare.addElement(new LensflareElement(flareTexture('ring'), 50, 0.95));
-        light.add(flare);
-      }
+      // sunlight in space is white (the Sun's yellow tint is an atmospheric effect on Earth)
+      light = new THREE.PointLight(def.id === 'sun' ? '#fff6ec' : def.color, 4.5, 0, 0);
       mesh.add(light);
       this.sunWorld = new THREE.Vector3();
     } else {
-      mesh = new THREE.Mesh(new THREE.SphereGeometry(def.radius, 64, 40), new THREE.MeshStandardMaterial({ map: this.planetTexture(def), bumpMap: this.planetTexture(def), bumpScale: def.mass > 1e-5 ? 0.2 : 2, roughness: def.id === 'earth' ? 0.55 : 0.85, metalness: 0 }));
+      const real = PLANET_MAPS[def.id] ? assets.space(PLANET_MAPS[def.id]) : null;
+      const mat = real
+        ? new THREE.MeshStandardMaterial({ map: real, roughness: 0.92, metalness: 0 })
+        : new THREE.MeshStandardMaterial({ map: this.planetTexture(def), bumpMap: this.planetTexture(def), bumpScale: def.mass > 1e-5 ? 0.2 : 2, roughness: def.id === 'earth' ? 0.55 : 0.85, metalness: 0 });
+      mesh = new THREE.Mesh(new THREE.SphereGeometry(def.radius, 96, 64), mat);
+      if (def.id === 'earth' && real) this.makeEarth(mesh, mat, def.radius);
       const atm = ATMOSPHERE[def.id];
       if (atm) {
         const shell = new THREE.Mesh(new THREE.SphereGeometry(def.radius * 1.12, 48, 32), new THREE.ShaderMaterial({
@@ -202,7 +226,13 @@ export class Cosmos extends Realm {
         mesh.add(shell);
       }
       if (def.id === 'saturn') {
-        const ring = new THREE.Mesh(new THREE.RingGeometry(def.radius * 1.3, def.radius * 2.3, 64), new THREE.MeshBasicMaterial({ color: '#d8c89a', side: THREE.DoubleSide, transparent: true, opacity: 0.55 }));
+        const ringTex = assets.space('2k_saturn_ring_alpha.png');
+        const rg = new THREE.RingGeometry(def.radius * 1.24, def.radius * 2.27, 256, 1);
+        const rp = rg.attributes.position as THREE.BufferAttribute, ruv = rg.attributes.uv as THREE.BufferAttribute;
+        for (let i = 0; i < rp.count; i++) ruv.setXY(i, (Math.hypot(rp.getX(i), rp.getY(i)) - def.radius * 1.24) / (def.radius * 1.03), 0.5);
+        const ring = new THREE.Mesh(rg, ringTex
+          ? new THREE.MeshStandardMaterial({ map: ringTex, alphaMap: ringTex, transparent: true, side: THREE.DoubleSide, roughness: 0.9, depthWrite: false })
+          : new THREE.MeshBasicMaterial({ color: '#d8c89a', side: THREE.DoubleSide, transparent: true, opacity: 0.55 }));
         ring.rotation.x = -Math.PI / 2 + 0.45;
         mesh.add(ring);
       }
@@ -227,6 +257,32 @@ export class Cosmos extends Realm {
     this.system.add(mesh, trail);
     return { id: def.id, mesh, label, trail, trailPos, trailN: 0, colorKey: def.color, glow, light };
   }
+
+  /** Earth: city lights on the night side and a separate, drifting cloud layer. */
+  private makeEarth(mesh: THREE.Mesh, mat: THREE.MeshStandardMaterial, radius: number) {
+    const night = assets.space('2k_earth_nightmap.jpg');
+    if (night) {
+      mat.emissiveMap = night;
+      mat.emissive = new THREE.Color('#ffd9a0');
+      mat.emissiveIntensity = 1.6;
+      mat.onBeforeCompile = (sh) => {
+        sh.uniforms.uSunView = this.sunView;
+        sh.fragmentShader = 'uniform vec3 uSunView;\n' + sh.fragmentShader.replace(
+          '#include <emissivemap_fragment>',
+          `#include <emissivemap_fragment>
+          float dayside = dot(normalize(vNormal), normalize(uSunView));
+          totalEmissiveRadiance *= smoothstep(0.15, -0.25, dayside);`,
+        );
+      };
+    }
+    const cloudsT = assets.space('2k_earth_clouds.jpg', false);
+    if (cloudsT) {
+      const clouds = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.015, 96, 64), new THREE.MeshStandardMaterial({ alphaMap: cloudsT, transparent: true, color: '#ffffff', roughness: 1, depthWrite: false }));
+      clouds.userData.clouds = true;
+      mesh.add(clouds);
+    }
+  }
+  private sunView = { value: new THREE.Vector3(1, 0, 0) };
 
   private rebuild(defs: BodyDef[]) {
     for (const v of this.views.values()) this.disposeView(v);
@@ -342,13 +398,19 @@ export class Cosmos extends Realm {
       }
     }
     const sunP = this.sunWorld ?? new THREE.Vector3();
+    // sun direction in view space (for Earth's night lights), clouds drift
+    const earth = this.views.get('earth');
+    if (earth) {
+      this.sunView.value.copy(sunP).sub(earth.mesh.position).normalize().transformDirection(ctx.camera.matrixWorldInverse);
+      for (const c of earth.mesh.children) if (c.userData.clouds) c.rotation.y += ctx.dt * 0.15;
+    }
     for (const v of this.views.values()) for (const c of v.mesh.children) if (c.userData.atmosphere) ((c as THREE.Mesh).material as THREE.ShaderMaterial).uniforms.uSun.value.copy(sunP);
     // Black-hole crossfade
     this.bhFade += ((this.bhOn ? 1 : 0) - this.bhFade) * Math.min(1, ctx.rdt * 1.5);
     this.bh.visible = this.bhFade > 0.01;
     this.system.visible = this.bhFade < 0.98;
     this.bhMat.uniforms.uFade.value = this.bhFade;
-    this.look.bloom = this.bhOn ? [0.9, 0.7, 0.7] : [0.35, 0.4, 1.4];
+    this.look.bloom = this.bhOn ? [0.6, 0.65, 0.85] : [0.35, 0.4, 1.4];
     this.look.godRays = this.bhOn ? 0 : 0.3;
     this.bhMat.uniforms.uTime.value = ctx.t;
     this.bhMat.uniforms.uCam.value.copy(ctx.camera.position);
@@ -443,29 +505,8 @@ function coronaTexture() {
   return (coronaTex = new THREE.CanvasTexture(c));
 }
 
-const flareCache: Record<string, THREE.Texture> = {};
-function flareTexture(kind: 'main' | 'ring') {
-  if (flareCache[kind]) return flareCache[kind];
-  const c = document.createElement('canvas');
-  c.width = c.height = 256;
-  const g = c.getContext('2d')!;
-  if (kind === 'main') {
-    const grd = g.createRadialGradient(128, 128, 0, 128, 128, 128);
-    grd.addColorStop(0, 'rgba(255,255,255,1)');
-    grd.addColorStop(0.1, 'rgba(255,240,220,0.6)');
-    grd.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = grd;
-    g.fillRect(0, 0, 256, 256);
-    g.fillStyle = 'rgba(255,240,220,0.35)';
-    g.fillRect(0, 126, 256, 4);
-  } else {
-    g.strokeStyle = 'rgba(160,200,255,0.25)';
-    g.lineWidth = 10;
-    g.beginPath();
-    for (let i = 0; i <= 6; i++) { const a = (i / 6) * Math.PI * 2; g[i ? 'lineTo' : 'moveTo'](128 + Math.cos(a) * 100, 128 + Math.sin(a) * 100); }
-    g.stroke();
-    g.fillStyle = 'rgba(120,170,255,0.06)';
-    g.fill();
-  }
-  return (flareCache[kind] = new THREE.CanvasTexture(c));
-}
+/** Real planetary maps (Solar System Scope, CC BY 4.0, from NASA imagery). */
+const PLANET_MAPS: Record<string, string> = {
+  mercury: '2k_mercury.jpg', venus: '2k_venus_atmosphere.jpg', earth: '8k_earth_daymap.jpg', mars: '2k_mars.jpg',
+  jupiter: '2k_jupiter.jpg', saturn: '2k_saturn.jpg', uranus: '2k_uranus.jpg', neptune: '2k_neptune.jpg',
+};

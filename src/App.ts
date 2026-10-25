@@ -18,6 +18,7 @@ import { applyDialogue, NPC_BY_ID, FACT_BY_ID } from '../shared/story';
 import { Cosmos } from './realms/Cosmos';
 import { Village } from './realms/Village';
 import { Atom } from './realms/Atom';
+import { assets } from './engine/assets';
 
 const LS_KEY = 'anant.world.v1';
 const JOURNEY: RealmId[] = ['atom', 'cosmos', 'village', 'nexus'];
@@ -95,6 +96,7 @@ export class App implements InputHost {
   // ———————————————————————————————— lifecycle ————————————————————————————————
 
   async boot() {
+    await assets.init();
     try {
       this.health = await api.health();
       this.serverOk = true;

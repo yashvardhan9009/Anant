@@ -124,7 +124,25 @@ for (const [id, res] of Object.entries(HDRIS)) {
   }
 }
 
+// ——— Science realms: planetary maps & Milky Way (Solar System Scope, CC BY 4.0, from NASA data) ———
+const SSS = 'https://www.solarsystemscope.com/textures/download/';
+export const SPACE = [
+  '8k_stars_milky_way.jpg', '2k_sun.jpg', '2k_mercury.jpg', '2k_venus_atmosphere.jpg', '8k_earth_daymap.jpg', '2k_earth_nightmap.jpg',
+  '2k_earth_clouds.jpg', '2k_moon.jpg', '2k_mars.jpg', '2k_jupiter.jpg', '2k_saturn.jpg', '2k_saturn_ring_alpha.png', '2k_uranus.jpg', '2k_neptune.jpg',
+];
+for (const f of SPACE) {
+  const out = join(OUT, 'space', f);
+  if (!want(f) || (existsSync(out) && !FORCE)) continue;
+  try {
+    curl(SSS + f, out);
+    console.log(`[assets] space  ${f} (${mb(out)} MB)`);
+  } catch (e) {
+    console.warn(`[assets] space ${f} failed: ${e.message}`);
+  }
+}
+credits.solar_system_scope = { name: 'Planet textures & Milky Way panorama', type: 'texture', authors: ['Solar System Scope / INOVE'], license: 'CC BY 4.0', source: 'https://www.solarsystemscope.com/textures/', note: 'Based on NASA imagery and elevation data.' };
+
 mkdirSync(OUT, { recursive: true });
 writeFileSync(join(OUT, 'CREDITS.json'), JSON.stringify(credits, null, 2));
-writeFileSync(join(OUT, 'manifest.json'), JSON.stringify({ models: Object.keys(MODELS).filter((m) => existsSync(join(OUT, 'models', `${m}.glb`))), textures: Object.keys(TEXTURES).filter((t) => existsSync(join(OUT, 'textures', t, 'diff.jpg'))), hdris: Object.keys(HDRIS).filter((h) => existsSync(join(OUT, 'hdri', `${h}.hdr`))) }, null, 2));
+writeFileSync(join(OUT, 'manifest.json'), JSON.stringify({ models: Object.keys(MODELS).filter((m) => existsSync(join(OUT, 'models', `${m}.glb`))), textures: Object.keys(TEXTURES).filter((t) => existsSync(join(OUT, 'textures', t, 'diff.jpg'))), hdris: Object.keys(HDRIS).filter((h) => existsSync(join(OUT, 'hdri', `${h}.hdr`))), space: SPACE.filter((f) => existsSync(join(OUT, 'space', f))) }, null, 2));
 console.log('[assets] done — credits in public/assets/CREDITS.json');

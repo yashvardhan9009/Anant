@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { Realm, InfoCard, FrameCtx } from '../engine/Realm';
 import { makeMotes } from '../engine/fx';
+import { OrbitalVolume } from './atomVolume';
 import { QUALITY } from '../engine/quality';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { WorldState, Env } from '../../shared/worldState';
@@ -34,6 +35,13 @@ export class Atom extends Realm {
   private scaleBar!: THREE.Line;
   controlMode = 'orbit' as const;
   current = { n: 1, l: 0, m: 0 };
+  private vol = new OrbitalVolume();
+  private volFrom: [number, number, number] = [1, 0, 0];
+  private volTo: [number, number, number] = [1, 0, 0];
+  private volMix = 1;
+  private superT = -1;
+  /** last transition frequency (Hz), for the info card */
+  private transitionHz = 0;
 
   private studio!: THREE.ShaderMaterial;
   private dust = makeMotes(500, new THREE.Vector3(60, 40, 60), '#7fb8ff', 0.035);
@@ -46,7 +54,7 @@ export class Atom extends Realm {
   }
 
   protected build() {
-    this.look = { exposure: 1.0, bloom: [0.7, 0.55, 0.72], contrast: 1.1, saturation: 1.06, shadows: '#04122a', highlights: '#ffe2c4', vignette: 0.75, godRays: 0 };
+    this.look = { exposure: 0.95, bloom: [0.45, 0.5, 0.9], contrast: 1.1, saturation: 1.06, shadows: '#04122a', highlights: '#ffe2c4', vignette: 0.75, godRays: 0 };
     // Studio backdrop: deep navy falling off to steel blue, like a macro product shot
     this.studio = new THREE.ShaderMaterial({
       uniforms: { uTint: { value: new THREE.Color('#3a78c0') }, uTime: { value: 0 } },
@@ -103,7 +111,7 @@ export class Atom extends Realm {
           vCol = sign > 0.0 ? uPos : uNeg;
           // twinkle: each dot is a possible measurement outcome, flickering in and out
           float tw = 0.45 + 0.55*sin(uTime*(1.5+rnd*4.0) + rnd*80.0);
-          vA = (0.25 + 0.75*dens) * tw;
+          vA = (0.25 + 0.75*dens) * tw * 0.4; // measurement sparkles sit on top of the volumetric density
           if (uSlice > 0.5 && p.z > 0.0) vA = 0.0;
           if (uShellR > 0.0) { float d = abs(length(p) - uShellR); vA += smoothstep(0.35*uScale, 0.0, d)*0.6; vCol = mix(vCol, vec3(1.0,0.95,0.6), smoothstep(0.35*uScale,0.0,d)); }
           vec4 mv = modelViewMatrix*vec4(p,1.0);
@@ -120,6 +128,7 @@ export class Atom extends Realm {
     this.cloud = new THREE.Points(this.geo, this.mat);
     this.cloud.frustumCulled = false;
     this.scene.add(this.cloud);
+    this.scene.add(this.vol.mesh);
 
     // Nucleus (one proton) — hugely enlarged; the info card states by how much.
     this.nucleus = new THREE.Group();
@@ -183,6 +192,10 @@ export class Atom extends Realm {
     this.fitA = instant ? fitFor(n, l) : this.fitB;
     this.fitB = fitFor(n, l);
     this.morph = instant ? 1 : 0;
+    this.volFrom = instant ? [n, l, m] : [this.current.n, this.current.l, this.current.m];
+    this.volTo = [n, l, m];
+    this.volMix = instant ? 1 : 0;
+    this.vol.setStates(this.volFrom, this.volTo);
     this.current = { n, l, m };
   }
 
@@ -196,6 +209,8 @@ export class Atom extends Realm {
     const key = `${a.n},${a.l},${a.m}`;
     if (key !== this.key) {
       const first = this.key === '';
+      // a transition stored in a saved world is history — don't replay its photon on load
+      if (first && a.transition) this.lastTransition = a.transition.id;
       this.key = key;
       if (!first || a.n !== 1 || a.l !== 0) this.setOrbital(a.n, a.l, a.m, first);
     }
@@ -210,6 +225,9 @@ export class Atom extends Realm {
   }
 
   private firePhoton(kind: string, lambda: number) {
+    // the electron passes through a superposition of the two states; its density oscillates at ΔE/h
+    this.superT = 0;
+    this.transitionHz = 299792458 / (lambda * 1e-9);
     if (this.photon) {
       this.scene.remove(this.photon.mesh, this.photon.trail);
     }
@@ -236,11 +254,36 @@ export class Atom extends Realm {
     (this.shell.material as THREE.ShaderMaterial).uniforms.uTime.value = ctx.t;
     if (this.morph < 1) this.morph = Math.min(1, this.morph + ctx.rdt / 1.8);
     u.uMorph.value = this.morph;
+    // ——— volumetric |ψ|² ———
+    const vu = this.vol.mat.uniforms;
+    vu.uTime.value = ctx.t;
+    vu.uSlice.value = u.uSlice.value;
+    if (this.superT >= 0) {
+      this.superT += ctx.frozen ? 0 : ctx.rdt;
+      const k = Math.min(1, this.superT / 4.5);
+      const th = (k * k * (3 - 2 * k)) * Math.PI / 2;
+      vu.uSuper.value = 1;
+      vu.uA.value = Math.cos(th);
+      vu.uB.value = Math.sin(th);
+      vu.uPhase.value = this.superT * Math.PI * 2 * 1.4; // ΔE/h slowed ~10¹⁵×
+      if (k >= 1) { this.superT = -1; this.volMix = 1; vu.uSuper.value = 0; }
+    } else if (this.volMix < 1) {
+      this.volMix = Math.min(1, this.volMix + ctx.rdt / 1.8);
+    }
+    if (this.superT < 0) {
+      vu.uMix.value = this.volMix;
+      if (this.volMix >= 1 && this.volFrom.join() !== this.volTo.join()) {
+        this.volFrom = [...this.volTo];
+        this.vol.setStates(this.volFrom, this.volTo);
+        vu.uMix.value = 0;
+      }
+    }
     u.uFitA.value = this.fitA;
     u.uFitB.value = this.fitB;
     this.scaleCur += (this.scaleTarget - this.scaleCur) * Math.min(1, ctx.rdt * 4);
     u.uScale.value = this.scaleCur;
     const fit = this.fitA + (this.fitB - this.fitA) * this.morph;
+    this.vol.layout(fit * this.scaleCur, this.volFrom, this.volTo);
     const rmp = mostProbableRadius(this.current.n, this.current.l) * fit * this.scaleCur;
     this.shell.scale.setScalar(rmp);
     u.uShellR.value = this.shell.visible ? rmp : -1;
@@ -287,8 +330,9 @@ export class Atom extends Realm {
       subtitle: 'Each dot is a possible position of the electron, drawn at random from |ψ|². There is no orbit — only probability.',
       accuracy: [
         { tag: 'MODEL', text: 'Exact solution of the non-relativistic Schrödinger equation for hydrogen (ignores spin, fine structure, Lamb shift).' },
-        { tag: 'SIMULATION', text: `${(POINTS / 1000).toFixed(0)}k Monte-Carlo samples of |ψ_nlm|²; colour = sign of the real wavefunction (amber +, blue −).` },
-        { tag: 'ARTISTIC', text: `Studio lighting, depth-of-field blur, twinkling and the morph animation are visual. The proton is drawn ~${exaggeration.toLocaleString()}× too large.` },
+        { tag: 'SIMULATION', text: `The glow is |ψ_nlm|² integrated along every view ray (volumetric, evaluated exactly per pixel). The sparkles are ${(POINTS / 1000).toFixed(0)}k random position measurements drawn from |ψ|². Colour = sign of the real wavefunction (amber +, blue −).` },
+        ...(this.superT >= 0 || this.transitionHz ? [{ tag: 'MODEL' as const, text: `During a transition the electron is in a superposition of both states; its charge density sloshes at ΔE/h ≈ ${(this.transitionHz / 1e15).toFixed(2)} PHz — that oscillating dipole emits the photon. Shown slowed by ~10¹⁵.` }] : []),
+        { tag: 'ARTISTIC', text: `Studio lighting, brightness curve, depth-of-field blur, twinkling and the morph between states are visual. The proton is drawn ~${exaggeration.toLocaleString()}× too large.` },
       ],
       stats: [
         { label: 'Quantum numbers', value: `n=${n}  l=${l}  m=${m}` },

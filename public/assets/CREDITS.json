@@ -389,5 +389,15 @@
     ],
     "license": "CC0 1.0",
     "source": "https://polyhaven.com/a/moonless_golf"
+  },
+  "solar_system_scope": {
+    "name": "Planet textures & Milky Way panorama",
+    "type": "texture",
+    "authors": [
+      "Solar System Scope / INOVE"
+    ],
+    "license": "CC BY 4.0",
+    "source": "https://www.solarsystemscope.com/textures/",
+    "note": "Based on NASA imagery and elevation data."
   }
 }
