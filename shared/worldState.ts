@@ -214,8 +214,7 @@ export function surfaceHeight(o: SceneObject): number {
 
 const fail = (op: string, message: string): ExecResult => ({ ok: false, op, message });
 
-export function execute(prev: WorldState, cmdIn: Command, ctx: ExecContext = {}): { state: WorldState; result: ExecResult } {
-  let cmd = cmdIn;
+export function execute(prev: WorldState, cmd: Command, ctx: ExecContext = {}): { state: WorldState; result: ExecResult } {
   const s: WorldState = structuredClone(prev);
   const now = ctx.now ?? Date.now();
   const nextId = (prefix: string) => `${prefix}-${++s.seq}`;
@@ -353,9 +352,13 @@ export function execute(prev: WorldState, cmdIn: Command, ctx: ExecContext = {})
           ? 'Weather and daylight have no meaning inside a single atom — there is no air at this scale. You can still change the background colour, or try this in the Nexus or Emberfall.'
           : 'Space is a vacuum: no weather, fog or daylight cycle. You can tint the sky colour, or try this in the Nexus or Emberfall.');
         if (!cmd.sky_color) break;
-        cmd = { op: 'set_environment', sky_color: cmd.sky_color };
       }
       const e = s.env[s.activeRealm];
+      if (sci) {
+        e.skyColor = cmd.sky_color;
+        result = { ok: true, op: cmd.op, message: `The background shifts to ${cmd.sky_color} (a visual tint only).` };
+        break;
+      }
       if (cmd.sky_color) e.skyColor = cmd.sky_color;
       if (cmd.weather) e.weather = cmd.weather;
       if (cmd.time_of_day) { e.timeOfDay = cmd.time_of_day; if (s.activeRealm === 'village') s.story.timeOfDay = cmd.time_of_day; }
