@@ -90,3 +90,12 @@ describe('local fallback parser', () => {
     expect(w.time.frozen).toBe(true);
   });
 });
+
+describe('powers-of-ten zoom phrases', () => {
+  it('maps scale journeys to atom_set_view', () => {
+    expect(ops('Show me a water molecule')).toEqual([{ op: 'go_to_realm', realm: 'atom' }, { op: 'atom_set_view', scale: 0.35 }]);
+    expect(ops('take me inside the proton', inRealm('atom'))).toEqual([{ op: 'atom_set_view', scale: 150000 }]);
+    expect(ops('zoom out to liquid water', inRealm('atom'))).toEqual([{ op: 'atom_set_view', scale: 0.06 }]);
+    expect(ops('back to the single atom', inRealm('atom'))).toEqual([{ op: 'atom_set_view', scale: 1 }]);
+  });
+});

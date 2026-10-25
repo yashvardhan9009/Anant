@@ -42,7 +42,7 @@ const GLSL = /* glsl */ `
   uniform int uN, uL, uM, uN2, uL2, uM2;
   uniform float uRN, uYN, uRN2, uYN2, uKA, uKB;
   uniform float uMix, uSuper, uA, uB, uPhase;
-  uniform float uInvFit, uRadius, uSlice, uTime, uGain, uSteps;
+  uniform float uInvFit, uRadius, uSlice, uTime, uGain, uSteps, uOpacity;
   uniform vec3 uPos, uNeg;
   varying vec3 vWorld;
 
@@ -126,7 +126,7 @@ const GLSL = /* glsl */ `
       T *= exp(-e * 0.55);
       if (T < 0.015) break;
     }
-    gl_FragColor = vec4(col, 1.0 - T);
+    gl_FragColor = vec4(col * uOpacity, (1.0 - T) * uOpacity);
   }
 `;
 
@@ -140,7 +140,7 @@ export class OrbitalVolume {
         uRN: { value: 1 }, uYN: { value: 1 }, uRN2: { value: 1 }, uYN2: { value: 1 }, uKA: { value: 1 }, uKB: { value: 1 },
         uMix: { value: 0 }, uSuper: { value: 0 }, uA: { value: 1 }, uB: { value: 0 }, uPhase: { value: 0 },
         uInvFit: { value: 1 }, uRadius: { value: 8 }, uSlice: { value: 0 }, uTime: { value: 0 }, uGain: { value: 0.11 },
-        uSteps: { value: QUALITY.low ? 28 : 120 },
+        uSteps: { value: QUALITY.low ? 28 : 120 }, uOpacity: { value: 1 },
         uPos: { value: new THREE.Color('#ff9a3c') }, uNeg: { value: new THREE.Color('#3fa9ff') },
       },
       vertexShader: `varying vec3 vWorld; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
@@ -171,7 +171,7 @@ export class OrbitalVolume {
   /** fit: scene units per Bohr radius (including user scale) */
   layout(fit: number, a: [number, number, number], b: [number, number, number]) {
     const R = Math.max(boundRadius(a[0], a[1]), boundRadius(b[0], b[1])) * fit;
-    this.mesh.scale.setScalar(R);
+    this.mesh.scale.setScalar(Math.min(R, 1500)); // proxy geometry only needs to cover the screen
     this.mat.uniforms.uRadius.value = R;
     this.mat.uniforms.uInvFit.value = 1 / fit;
   }

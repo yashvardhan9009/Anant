@@ -5,10 +5,21 @@ import { makeSkyDome, makeStarfield, NOISE_GLSL } from '../engine/fx';
 import { radialTexture } from './Atom';
 import { QUALITY } from '../engine/quality';
 import { assets } from '../engine/assets';
+import { cosmosDisplayHeight } from '../../shared/scale';
+import type { CameraRig } from '../engine/CameraRig';
 import type { WorldState, Env } from '../../shared/worldState';
 import { NBody, BodyDef, displayRadius } from '../../shared/physics';
 
 const TRAIL = 700;
+
+/** Equirect lookup + asinh stretch of the (nearly linear) Milky Way panorama. */
+const SKY_STRETCH = /* glsl */ `
+  vec3 milkyWay(sampler2D tex, vec3 d, float K, float gain) {
+    vec2 uv = vec2(atan(d.z, d.x) * 0.15915 + 0.5, asin(clamp(d.y, -1.0, 1.0)) * 0.31831 + 0.5);
+    vec3 c = texture2D(tex, uv).rgb;
+    return gain * vec3(asinh(c.r * K), asinh(c.g * K), asinh(c.b * K)) / asinh(K);
+  }
+`;
 
 interface BodyView {
   id: string;
@@ -51,10 +62,21 @@ export class Cosmos extends Realm {
     // the real sky: Milky Way panorama (Solar System Scope, from ESO/NASA imagery)
     const mw = assets.space('8k_stars_milky_way.jpg');
     if (mw) {
-      mw.mapping = THREE.EquirectangularReflectionMapping;
-      this.scene.background = mw;
-      this.scene.backgroundIntensity = 1.3;
-      this.scene.backgroundRotation.set(0.35, 0, 0.25);
+      // The panorama is stored nearly linear (mean ≈ 1/255): apply an astrophotography asinh
+      // stretch so the faint galactic band shows without blowing out the stars.
+      const skyMat = new THREE.ShaderMaterial({
+        uniforms: { uMap: { value: mw }, uK: { value: 220 }, uGain: { value: 1.7 } },
+        side: THREE.BackSide, depthWrite: false,
+        vertexShader: `varying vec3 vD; void main(){ vD = normalize(position); vec4 p = projectionMatrix*modelViewMatrix*vec4(position,1.0); gl_Position = p.xyww; }`,
+        fragmentShader: `uniform sampler2D uMap; uniform float uK, uGain; varying vec3 vD;
+          ${SKY_STRETCH}
+          void main(){ vec3 d = normalize(vD); gl_FragColor = vec4(milkyWay(uMap, d, uK, uGain), 1.0); }`,
+      });
+      this.skySphere = new THREE.Mesh(new THREE.SphereGeometry(1500, 64, 32), skyMat);
+      this.skySphere.frustumCulled = false;
+      this.skySphere.renderOrder = -10;
+      this.skySphere.rotation.set(0.42, 0, 0.3);
+      this.scene.add(this.skySphere);
       this.sky.mesh.visible = false;
     }
     this.scene.add(new THREE.AmbientLight('#1a2030', 0.25));
@@ -68,6 +90,7 @@ export class Cosmos extends Realm {
       fragmentShader: /* glsl */ `
         uniform vec3 uCam; uniform float uTime, uFade, uScale, uHasSky; uniform sampler2D uSky; varying vec3 vW;
         ${NOISE_GLSL}
+        ${SKY_STRETCH}
         vec3 stars(vec3 d){
           vec3 c = vec3(0.0);
           for (int k = 0; k < 2; k++) {
@@ -121,9 +144,7 @@ export class Cosmos extends Realm {
             vec3 bg = stars(d);
             if (uHasSky > 0.5) {
               // the real Milky Way, seen along the BENT ray — this is gravitational lensing of actual sky imagery
-              vec2 uv = vec2(atan(d.z, d.x) * 0.15915 + 0.5, asin(clamp(d.y, -1.0, 1.0)) * 0.31831 + 0.5);
-              vec3 m = texture2D(uSky, uv).rgb;
-              bg = m * 1.5 + bg * 0.3;
+              bg = milkyWay(uSky, d, 220.0, 1.7) + bg * 0.25;
             }
             col += (1.0-alpha) * bg;
           }
@@ -283,6 +304,7 @@ export class Cosmos extends Realm {
     }
   }
   private sunView = { value: new THREE.Vector3(1, 0, 0) };
+  private skySphere?: THREE.Mesh;
 
   private rebuild(defs: BodyDef[]) {
     for (const v of this.views.values()) this.disposeView(v);
@@ -370,6 +392,7 @@ export class Cosmos extends Realm {
   update(ctx: FrameCtx) {
     super.update(ctx);
     this.sky.uniforms.uTime.value = ctx.t;
+    if (this.skySphere && ctx.active) this.skySphere.position.copy(ctx.camera.position);
     if (!this.paused && !ctx.frozen && (ctx.active || ctx.dt > 0)) {
       const years = this.timeScale * ctx.dt;
       this.stepsLastFrame = this.sim.advance(years, 0.0005, ctx.active ? 800 : 120);
@@ -424,6 +447,27 @@ export class Cosmos extends Realm {
       if (i >= 0) return this.displayPos(i);
     }
     return super.focusPoint(kind, id);
+  }
+
+  /** observer's apparent height in display units (drives camera distance, speed and reach) */
+  observerH = 0.0025;
+
+  /**
+   * Apparent size → camera. Human-sized: you hover just above Earth. Growing:
+   * the camera pulls back so bodies keep their apparent relation to your size;
+   * past planet scale the Sun becomes the anchor. Mass and physics are untouched.
+   */
+  applyObserver(size: number, rig: CameraRig) {
+    const H = cosmosDisplayHeight(size);
+    this.observerH = H;
+    const anchor = size < 3e8 && this.sim.index('earth') >= 0 ? 'earth' : this.defs.find((d) => d.kind === 'star')?.id ?? this.defs[0]?.id;
+    if (!anchor) return;
+    const bodyR = this.bodyRadius(anchor);
+    const dist = Math.max(bodyR * 1.08 + H * 2.5, H * 3);
+    if (rig.mode !== 'orbit') rig.setOrbit(new THREE.Vector3(), rig.camera.position.clone());
+    rig.speedScale = Math.max(0.02, H);
+    const p = this.focusPoint('body', anchor) ?? new THREE.Vector3();
+    rig.focusOn(p, dist, () => this.focusPoint('body', anchor));
   }
 
   bodyRadius(id: string) {

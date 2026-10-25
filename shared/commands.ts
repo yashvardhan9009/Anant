@@ -7,6 +7,7 @@
  * says is ever run as code.
  */
 import { z } from 'zod';
+import { SCALE_PRESET_IDS, MIN_SIZE, MAX_SIZE } from './scale.js';
 
 export const REALMS = ['nexus', 'atom', 'cosmos', 'village'] as const;
 export type RealmId = (typeof REALMS)[number];
@@ -104,8 +105,9 @@ export const CommandSchemas = {
   }),
   atom_set_view: z.object({
     op: z.literal('atom_set_view'),
-    scale: z.number().min(0.2).max(8).optional(),
-    scale_by: z.number().min(0.1).max(10).optional(),
+    // powers-of-ten zoom: liquid water (~10⁻⁸ m) down to the proton (~10⁻¹⁵ m)
+    scale: z.number().min(0.0005).max(300000).optional(),
+    scale_by: z.number().min(0.001).max(1000).optional(),
     show_nucleus: z.boolean().optional(),
     highlight_most_probable: z.boolean().optional(),
     slice: z.boolean().optional(),
@@ -140,6 +142,13 @@ export const CommandSchemas = {
   talk_to: z.object({ op: z.literal('talk_to'), npc: target }),
   accuse: z.object({ op: z.literal('accuse'), npc: target }),
   save_world: z.object({ op: z.literal('save_world'), name: z.string().min(1).max(48).optional() }),
+  set_scale: z.object({
+    op: z.literal('set_scale'),
+    /** apparent body size in metres (NOT mass) */
+    size_m: z.number().min(MIN_SIZE).max(MAX_SIZE).optional(),
+    preset: z.enum(SCALE_PRESET_IDS as [string, ...string[]]).optional(),
+    factor: z.number().min(1e-9).max(1e9).optional(),
+  }),
 } as const;
 
 export type CommandOp = keyof typeof CommandSchemas;
@@ -165,7 +174,7 @@ export const COMMAND_DOCS: Record<CommandOp, string> = {
   set_time: 'Freeze/unfreeze time or change the global time scale. {frozen?, scale?}',
   atom_set_orbital: 'Show hydrogen orbital (n,l,m). Constraints: 1≤n≤4, 0≤l<n, |m|≤l. 1s=(1,0,0), 2s=(2,0,0), 2p=(2,1,0), 3d=(3,2,0).',
   atom_transition: 'Animate an electron transition to (n,l,m) and emit/absorb a photon with the correct Rydberg wavelength. Same constraints as atom_set_orbital.',
-  atom_set_view: 'Adjust atom view. {scale? 0.2..8, scale_by?, show_nucleus?, highlight_most_probable? (shell where the electron is most likely to be found), slice? (cut-away)}',
+  atom_set_view: 'Adjust atom view / powers-of-ten zoom. scale 1 = one atom; 0.35 ≈ a water molecule; 0.06 ≈ liquid water; 150000 ≈ the proton at true size. {scale? 0.0005..300000, scale_by?, show_nucleus?, highlight_most_probable? (shell where the electron is most likely to be found), slice? (cut-away)}',
   cosmos_create_system: `Create a star system. preset ∈ ${COSMOS_PRESETS.join('|')}.`,
   cosmos_set_body: 'Change a celestial body. {target (name e.g. "jupiter"), mass_multiplier?, color?}',
   cosmos_add_body: 'Add a planet on a circular orbit. {name, mass (solar masses; Earth≈3e-6, Jupiter≈9.5e-4), distance (AU), color?}',
@@ -176,6 +185,7 @@ export const COMMAND_DOCS: Record<CommandOp, string> = {
   talk_to: 'Begin a conversation with an NPC in the village. {npc}',
   accuse: 'Formally accuse an NPC of stealing the Ember Crown (story decision with consequences). {npc}',
   save_world: 'Save the current world. {name?}',
+  set_scale: `Change the user's APPARENT size (never their mass). Moves to the realm that can show that size (< 1 µm → atom/micro world, > 2 km → cosmos, otherwise human scale). {size_m? metres, preset? (${SCALE_PRESET_IDS.join('|')}), factor? (e.g. 0.1 = ten times smaller)}`,
 };
 
 export interface ValidationIssue {
@@ -217,6 +227,7 @@ export function semanticCheck(cmd: Command): string | null {
     if (cmd.l >= cmd.n) return `quantum numbers invalid: l (${cmd.l}) must be < n (${cmd.n})`;
     if (Math.abs(cmd.m) > cmd.l) return `quantum numbers invalid: |m| (${Math.abs(cmd.m)}) must be ≤ l (${cmd.l})`;
   }
+  if (cmd.op === 'set_scale' && cmd.size_m === undefined && cmd.preset === undefined && cmd.factor === undefined) return 'set_scale needs size_m, preset or factor';
   if (cmd.op === 'transform_object') {
     const any = cmd.scale_by ?? cmd.scale_to ?? cmd.move_by ?? cmd.move_to ?? cmd.rotate_by ?? cmd.place_on;
     if (any === undefined) return 'transform_object needs at least one of scale_by, scale_to, move_by, move_to, rotate_by, place_on';

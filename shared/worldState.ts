@@ -10,6 +10,7 @@ import { REALM_INFO, orbitalName } from './commands.js';
 import { makePreset, BodyDef, G_AU } from './physics.js';
 import { describeTransition, mostProbableRadius } from './hydrogen.js';
 import { initialStory, StoryState, resolveNpc, accuse as storyAccuse } from './story.js';
+import { SCALE_PRESETS, ScalePreset, clampSize, routeForSize, atomZoomForSize, sizeForAtomZoom, describeSize, HUMAN } from './scale.js';
 
 export type Vec3 = [number, number, number];
 
@@ -83,6 +84,8 @@ export interface WorldState {
     blackHole: boolean;
   };
   story: StoryState;
+  /** the user's apparent size in metres (separate from mass, time and gravity) */
+  observer: { size: number };
   selectedId?: string;
   focus?: { kind: 'object' | 'body' | 'npc'; id: string; seq: number };
   seq: number;
@@ -145,6 +148,7 @@ export function createWorld(name = 'My Universe', id = `world-${Date.now().toStr
     atom: { n: 1, l: 0, m: 0, scale: 1, showNucleus: true, highlight: false, slice: false },
     cosmos: { preset: 'solar_system', epoch: 1, bodies: makePreset('solar_system'), timeScale: 0.5, paused: false, trails: true, blackHole: false },
     story: initialStory(),
+    observer: { size: HUMAN },
     seq: 0,
     history: [],
   };
@@ -405,12 +409,13 @@ export function execute(prev: WorldState, cmd: Command, ctx: ExecContext = {}): 
     }
     case 'atom_set_view': {
       if (cmd.scale !== undefined) s.atom.scale = cmd.scale;
-      if (cmd.scale_by !== undefined) s.atom.scale = Math.min(8, Math.max(0.2, s.atom.scale * cmd.scale_by));
+      if (cmd.scale_by !== undefined) s.atom.scale = Math.min(300000, Math.max(0.0005, s.atom.scale * cmd.scale_by));
+      if (s.activeRealm === 'atom') s.observer = { size: sizeForAtomZoom(s.atom.scale) };
       if (cmd.show_nucleus !== undefined) s.atom.showNucleus = cmd.show_nucleus;
       if (cmd.highlight_most_probable !== undefined) s.atom.highlight = cmd.highlight_most_probable;
       if (cmd.slice !== undefined) s.atom.slice = cmd.slice;
       const extra = cmd.highlight_most_probable ? ` The glowing shell marks r = ${mostProbableRadius(s.atom.n, s.atom.l).toFixed(2)} a₀, where the radial probability peaks.` : '';
-      result = { ok: true, op: cmd.op, message: `Atom view updated (scale ${s.atom.scale.toFixed(2)}×).${extra}` };
+      result = { ok: true, op: cmd.op, message: `${describeZoom(s.atom.scale)}${extra}` };
       break;
     }
     case 'cosmos_create_system': {
@@ -506,6 +511,20 @@ export function execute(prev: WorldState, cmd: Command, ctx: ExecContext = {}): 
       result = { ok: true, op: cmd.op, message: r.message, data: { outcome: s.story.outcome?.kind } };
       break;
     }
+    case 'set_scale': {
+      const before = s.observer?.size ?? HUMAN;
+      let size = cmd.size_m ?? (cmd.preset ? SCALE_PRESETS[cmd.preset as ScalePreset][0] : before);
+      if (cmd.factor !== undefined) size *= cmd.factor;
+      size = clampSize(size);
+      s.observer = { size };
+      const from = s.activeRealm;
+      const to = routeForSize(size, from);
+      if (to !== from) { s.activeRealm = to; s.selectedId = undefined; }
+      if (to === 'atom') s.atom.scale = atomZoomForSize(size);
+      const verb = size < before ? 'You shrink' : size > before ? 'You grow' : 'You stay';
+      result = { ok: true, op: cmd.op, message: `${verb} to ${describeSize(size)}.${to !== from ? ` (Entering ${realmTitle(to)}.)` : ''} Your mass is unchanged — only your apparent size.`, data: { from, to, size } };
+      break;
+    }
     case 'save_world': {
       if (cmd.name) s.name = cmd.name;
       result = { ok: true, op: cmd.op, message: `Saving "${s.name}"…`, data: { pendingPersist: true } };
@@ -524,6 +543,15 @@ export function execute(prev: WorldState, cmd: Command, ctx: ExecContext = {}): 
   return { state: prev, result };
 }
 
+/** Human description of the powers-of-ten zoom level in the atom realm. */
+export function describeZoom(scale: number): string {
+  if (scale < 0.12) return `Zoomed out ×${(1 / scale).toFixed(0)}: liquid water — hundreds of molecules.`;
+  if (scale < 0.6) return `Zoomed out ×${(1 / scale).toFixed(0)}: a single water molecule, H₂O.`;
+  if (scale > 20000) return `Zoomed in ×${scale.toExponential(1)}: the proton at its true size.`;
+  if (scale > 40) return `Zoomed in ×${scale.toFixed(0)}: deep inside the atom — almost entirely empty space.`;
+  return `Atom view updated (zoom ×${scale.toPrecision(2)}).`;
+}
+
 /** Compact summary given to the AI Director so it can reason about the current world. */
 export function summarizeWorld(s: WorldState) {
   return {
@@ -538,6 +566,7 @@ export function summarizeWorld(s: WorldState) {
     atom: { n: s.atom.n, l: s.atom.l, m: s.atom.m, orbital: orbitalName(s.atom.n, s.atom.l, s.atom.m), scale: s.atom.scale },
     cosmos: s.activeRealm === 'cosmos' ? { preset: s.cosmos.preset, bodies: s.cosmos.bodies.map((b) => `${b.name}(${b.mass.toExponential(2)} M☉)`), timeScale: s.cosmos.timeScale, paused: s.cosmos.paused, blackHole: s.cosmos.blackHole } : undefined,
     village: s.activeRealm === 'village' ? { npcs: ['Captain Ilsa (watch captain)', 'Maera (innkeeper)', 'Doran (blacksmith)', 'Seren (herbalist)'], talkingTo: s.story.activeConversation, outcome: s.story.outcome?.kind } : undefined,
+    observerSize: describeSize(s.observer?.size ?? HUMAN),
     recent: s.history.slice(-5).map((h) => h.summary),
   };
 }

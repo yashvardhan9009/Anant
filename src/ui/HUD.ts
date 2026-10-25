@@ -5,6 +5,7 @@ import type { ExecResult } from '../../shared/worldState';
 import type { Health } from '../api';
 import { NPC_BY_ID } from '../../shared/story';
 import { escapeHtml } from '../realms/Village';
+import { formatLength } from '../../shared/scale';
 
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string) => {
   const e = document.createElement(tag);
@@ -22,7 +23,7 @@ export const CREATE_OPTIONS: { kind: ObjectKind; label: string }[] = [
 
 const HINTS: Record<string, string[]> = {
   nexus: ['Take me inside an atom', 'Open a portal to space', 'Create a glowing crystal', 'Make the sky purple'],
-  atom: ['Switch to a 2p orbital', 'Excite the electron to 3d', 'Show where the electron is most likely to be found', 'Increase the scale', 'Open a portal to space'],
+  atom: ['Show me a water molecule', 'Take me inside the proton', 'Switch to a 2p orbital', 'Excite the electron to 3d', 'Open a portal to space'],
   cosmos: ['Make Jupiter 1000 times more massive', 'Slow down the simulation', 'Show me a black hole', 'Take me to Europa', 'Open a portal to a fantasy kingdom'],
   village: ['Talk to Captain Ilsa', 'Create a floating island above the village', 'Summon a dragon', 'Make it night', 'Create a storm'],
 };
@@ -36,6 +37,7 @@ export class HUD {
   hints: HTMLDivElement;
   card: HTMLDivElement;
   title: HTMLDivElement;
+  observerEl: HTMLDivElement;
   badge: HTMLDivElement;
   aiPill: HTMLButtonElement;
   fpsEl: HTMLSpanElement;
@@ -69,7 +71,9 @@ export class HUD {
     brand.append(h('div', 'wordmark', 'ANANT'));
     this.title = h('div', 'realm-title', 'The Nexus');
     this.badge = h('div', 'mode-badge mode-hub', 'THE THRESHOLD');
-    brand.append(this.title, this.badge);
+    this.observerEl = h('div', 'observer-size', 'You: 1.70 m');
+    this.observerEl.title = 'Your apparent size (not your mass). Try “make me smaller” or “make me large enough to hold the Sun”.';
+    brand.append(this.title, this.badge, this.observerEl);
     const ctr = h('div', 'controls');
     this.fpsEl = h('span', 'fps');
     this.aiPill = h('button', 'pill');
@@ -176,7 +180,7 @@ export class HUD {
         <tr><td>Pinch + roll wrist</td><td>Rotate it</td></tr><tr><td>Two-hand pinch, spread</td><td>Scale the selection (or the atom)</td></tr>
         <tr><td>Hold open palm</td><td>Open the creation menu</td></tr><tr><td>Point &amp; draw a circle</td><td>Open a portal</td></tr><tr><td>Push palm forward</td><td>Apply a force</td></tr></table>
         <table><tr><td colspan=2 style="color:var(--violet)">MOUSE &amp; KEYBOARD</td></tr>
-        <tr><td>Drag</td><td>Look / orbit</td></tr><tr><td>WASD / arrows</td><td>Move (Shift = fast)</td></tr><tr><td>Wheel</td><td>Zoom / walk</td></tr>
+        <tr><td>Drag</td><td>Look / orbit (above &amp; below)</td></tr><tr><td>WASD / arrows</td><td>Move (Shift = fast)</td></tr><tr><td>C</td><td>Free-fly POV camera (E/Q up/down)</td></tr><tr><td>Wheel</td><td>Zoom · in the atom: powers of ten, from liquid water to the proton</td></tr>
         <tr><td>Click</td><td>Select · talk · enter portal</td></tr><tr><td>Drag object</td><td>Move it</td></tr><tr><td>Shift+wheel / [ ]</td><td>Scale selection (or atom)</td></tr>
         <tr><td>Alt+wheel / R</td><td>Rotate selection</td></tr><tr><td>Right-drag a circle</td><td>Open a portal</td></tr><tr><td>Space</td><td>Creation menu</td></tr>
         <tr><td>F</td><td>Push force</td></tr><tr><td>Del</td><td>Delete selection</td></tr><tr><td>T · V</td><td>Type · hold to talk</td></tr><tr><td>\`</td><td>FPS / latency overlay</td></tr></table>
@@ -225,6 +229,10 @@ export class HUD {
       lbl.textContent = hh.ai.mode === 'configured-but-unreachable' ? 'NEMOTRON unreachable · offline parser' : 'OFFLINE PARSER (no API key)';
       this.aiPill.title = 'The Director is running the deterministic local parser. Set NEBIUS_API_KEY on the server for live Nemotron inference.';
     }
+  }
+
+  setObserver(m: number) {
+    this.observerEl.textContent = `You: ${formatLength(m)}`;
   }
 
   setRealm(info: InfoCard, realm: string) {

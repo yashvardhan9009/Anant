@@ -125,6 +125,15 @@ export abstract class Realm {
     return this.objects.pickables();
   }
 
+  /**
+   * Map the observer's apparent size (metres) onto this realm's camera.
+   * Default (human-scale realms): eye height and walking speed follow body size.
+   */
+  applyObserver(size: number, rig: import('./CameraRig').CameraRig) {
+    this.eyeHeight = Math.min(900, Math.max(0.25, size * 0.93));
+    rig.speedScale = Math.min(400, Math.max(0.2, size / 1.7));
+  }
+
   /** Called when the user enters the realm. */
   onEnter(_state: WorldState) {}
   onExit() {}

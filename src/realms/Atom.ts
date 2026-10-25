@@ -3,6 +3,7 @@ import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { Realm, InfoCard, FrameCtx } from '../engine/Realm';
 import { makeMotes } from '../engine/fx';
 import { OrbitalVolume } from './atomVolume';
+import { WaterMolecule, LiquidWater, ProtonCore, PROTON_RADIUS_A0, A0_M, niceLength } from './atomScales';
 import { QUALITY } from '../engine/quality';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { WorldState, Env } from '../../shared/worldState';
@@ -36,6 +37,14 @@ export class Atom extends Realm {
   controlMode = 'orbit' as const;
   current = { n: 1, l: 0, m: 0 };
   private vol = new OrbitalVolume();
+  private molecule = new WaterMolecule();
+  private liquid = new LiquidWater();
+  private proton = new ProtonCore();
+  /** log10 of physical zoom relative to the 1s framing (powers of ten) */
+  zoomL = 0;
+  private state0ShowNucleus = true;
+  private camera0Dist(ctx: FrameCtx) { return ctx.camera.position.length(); }
+  private layers = { orbital: 1, molecule: 0, liquid: 0, proton: 0 };
   private volFrom: [number, number, number] = [1, 0, 0];
   private volTo: [number, number, number] = [1, 0, 0];
   private volMix = 1;
@@ -88,12 +97,12 @@ export class Atom extends Realm {
       uniforms: {
         uTime: { value: 0 }, uMorph: { value: 1 }, uFitA: { value: 1 }, uFitB: { value: 1 }, uScale: { value: 1 },
         uSlice: { value: 0 }, uPos: { value: new THREE.Color('#ff9a3c') }, uNeg: { value: new THREE.Color('#3fa9ff') }, uPx: { value: window.devicePixelRatio || 1 }, uFocus: { value: 16 },
-        uShellR: { value: -1 }, uFlash: { value: 0 },
+        uShellR: { value: -1 }, uFlash: { value: 0 }, uFade: { value: 1 },
       },
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
       vertexShader: /* glsl */ `
         attribute vec3 posB; attribute float signA, signB, densA, densB, rnd;
-        uniform float uTime, uMorph, uFitA, uFitB, uScale, uSlice, uPx, uShellR, uFocus;
+        uniform float uTime, uMorph, uFitA, uFitB, uScale, uSlice, uPx, uShellR, uFocus, uFade;
         varying vec3 vCol; varying float vA;
         uniform vec3 uPos, uNeg;
         void main(){
@@ -111,7 +120,7 @@ export class Atom extends Realm {
           vCol = sign > 0.0 ? uPos : uNeg;
           // twinkle: each dot is a possible measurement outcome, flickering in and out
           float tw = 0.45 + 0.55*sin(uTime*(1.5+rnd*4.0) + rnd*80.0);
-          vA = (0.25 + 0.75*dens) * tw * 0.4; // measurement sparkles sit on top of the volumetric density
+          vA = (0.25 + 0.75*dens) * tw * 0.4 * uFade; // measurement sparkles sit on top of the volumetric density
           if (uSlice > 0.5 && p.z > 0.0) vA = 0.0;
           if (uShellR > 0.0) { float d = abs(length(p) - uShellR); vA += smoothstep(0.35*uScale, 0.0, d)*0.6; vCol = mix(vCol, vec3(1.0,0.95,0.6), smoothstep(0.35*uScale,0.0,d)); }
           vec4 mv = modelViewMatrix*vec4(p,1.0);
@@ -136,13 +145,7 @@ export class Atom extends Realm {
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTexture('#9ab8ff'), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.55 }));
     glow.scale.setScalar(1.1);
     this.nucleus.add(core, glow);
-    const nl = document.createElement('div');
-    nl.className = 'label small';
-    nl.textContent = 'proton (enlarged)';
-    const nlo = new CSS2DObject(nl);
-    nlo.position.set(0, -0.45, 0);
-    this.nucleus.add(nlo);
-    this.scene.add(this.nucleus);
+    this.scene.add(this.nucleus, this.molecule.mesh, this.liquid.points, this.proton.group);
 
     // Most-probable-radius shell
     this.shell = new THREE.Mesh(
@@ -219,7 +222,7 @@ export class Atom extends Realm {
       if (a.transition.kind !== 'none') this.firePhoton(a.transition.kind, a.transition.lambda);
     }
     this.scaleTarget = a.scale;
-    this.nucleus.visible = a.showNucleus;
+    this.state0ShowNucleus = a.showNucleus;
     this.mat.uniforms.uSlice.value = a.slice ? 1 : 0;
     this.shell.visible = a.highlight;
   }
@@ -280,19 +283,44 @@ export class Atom extends Realm {
     }
     u.uFitA.value = this.fitA;
     u.uFitB.value = this.fitB;
-    this.scaleCur += (this.scaleTarget - this.scaleCur) * Math.min(1, ctx.rdt * 4);
+    // zoom spans ~9 orders of magnitude, so interpolate in log space
+    this.scaleCur = Math.exp(Math.log(this.scaleCur) + (Math.log(this.scaleTarget) - Math.log(this.scaleCur)) * Math.min(1, ctx.rdt * 4));
     u.uScale.value = this.scaleCur;
     const fit = this.fitA + (this.fitB - this.fitA) * this.morph;
-    this.vol.layout(fit * this.scaleCur, this.volFrom, this.volTo);
-    const rmp = mostProbableRadius(this.current.n, this.current.l) * fit * this.scaleCur;
+    const S = fit * this.scaleCur; // scene units per Bohr radius — ONE physical scale for every layer
+    this.zoomL = Math.log10(S / fitFor(1, 0));
+    const L = this.zoomL;
+    const ss = (x: number, a: number, b: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+    // real size ratios: H₂O ≈ 2.5× an H atom; a 3 nm droplet ≈ 15×; the proton ≈ 1/60 000
+    this.layers = {
+      orbital: ss(L, -0.55, -0.15) * (1 - 0.75 * ss(L, 1.8, 3.2)),
+      molecule: ss(L, -0.1, -0.5) * (1 - ss(L, -1.0, -1.4)),
+      liquid: ss(L, -0.8, -1.2),
+      proton: ss(L, 3.9, 4.7),
+    };
+    this.vol.layout(S, this.volFrom, this.volTo);
+    vu.uOpacity.value = this.layers.orbital;
+    u.uFade.value = this.layers.orbital * (1 - ss(L, 0.8, 1.6));
+    this.cloud.visible = u.uFade.value > 0.01;
+    this.molecule.layout(S, this.layers.molecule, ctx.t);
+    const projScale = innerHeight / (2 * Math.tan((ctx.camera.fov * Math.PI) / 360));
+    this.liquid.layout(S, this.layers.liquid, ctx.frozen ? 0 : ctx.t, projScale);
+    // the proton: drawn at TRUE size when that is visible; otherwise a small marker
+    const trueR = PROTON_RADIUS_A0 * S;
+    this.proton.layout(trueR, this.layers.proton, ctx.t);
+    const shown = Math.max(trueR, 0.035 * Math.max(0.3, Math.min(1, this.camera0Dist(ctx) / 16)));
+    this.nucleus.scale.setScalar(shown / 0.14);
+    this.nucleus.visible = this.state0ShowNucleus && this.layers.proton < 0.5 && this.layers.liquid < 0.5;
+    const rmp = mostProbableRadius(this.current.n, this.current.l) * S;
     this.shell.scale.setScalar(rmp);
     u.uShellR.value = this.shell.visible ? rmp : -1;
-    this.nucleus.scale.setScalar(Math.max(0.5, Math.min(2, this.scaleCur)));
-    // scale bar = 1 Å = 1.8897 a₀
-    const ang = 1.8897 * fit * this.scaleCur;
-    this.scaleBar.scale.x = ang;
-    this.scaleLabel.position.copy(this.scaleBar.position).add(new THREE.Vector3(ang / 2, 0.4, 0));
-    this.scaleLabel.element.textContent = `1 Å = 10⁻¹⁰ m`;
+    // scale bar: a round physical length (1/2/5 × 10ⁿ m)
+    const metersPerUnit = A0_M / S;
+    const nice = niceLength(metersPerUnit * 6);
+    const len = nice.m / metersPerUnit;
+    this.scaleBar.scale.x = len;
+    this.scaleLabel.position.copy(this.scaleBar.position).add(new THREE.Vector3(len / 2, 0.4, 0));
+    this.scaleLabel.element.textContent = nice.label;
     if (!ctx.frozen) this.cloud.rotation.y += ctx.dt * 0.05;
     // photon flight (real time, so it stays visible even when time is slowed)
     const ph = this.photon;
@@ -318,23 +346,66 @@ export class Atom extends Realm {
   }
 
   info(s: WorldState): InfoCard {
+    const L = this.zoomL;
+    const fitNow = fitFor(s.atom.n, s.atom.l) * s.atom.scale;
+    const view = niceLength((A0_M / fitNow) * 16).label;
+    const zoomStat = { label: 'Field of view ≈', value: view };
+    if (L < -0.95) return {
+      title: 'Liquid water · nanometre scale',
+      mode: 'SCIENTIFIC REALITY',
+      subtitle: 'Hundreds of water molecules, packed at the real density of liquid water. The atom you were inside is a hydrogen in the bright molecule at the centre. Scroll to zoom back in.',
+      accuracy: [
+        { tag: 'MEASURED', text: 'Number density 33.4 molecules/nm³, O–O spacing ≈ 2.75 Å, H₂O geometry (0.958 Å, 104.45°).' },
+        { tag: 'ARTISTIC', text: 'Molecule positions, orientations and the jiggling are illustrative — not a molecular-dynamics simulation. Atoms drawn as soft glows of roughly their van der Waals size.' },
+      ],
+      stats: [zoomStat, { label: 'Molecules shown', value: String(this.liquid.points.geometry.attributes.position.count / 3) }],
+    };
+    if (L < -0.25) return {
+      title: 'One water molecule · H₂O',
+      mode: 'SCIENTIFIC REALITY',
+      subtitle: 'The glow is the electron density of a water molecule: oxygen (cool white) holds most of the electrons; the two hydrogens (amber) share theirs with it. The H at the centre is the atom you started in.',
+      accuracy: [
+        { tag: 'MEASURED', text: 'Bond length O–H 0.9584 Å and bond angle 104.45° (gas-phase spectroscopy).' },
+        { tag: 'MODEL', text: 'Promolecule density: sum of isolated-atom densities (exact H 1s; oxygen from Slater-type orbitals, ζ₁ₛ = 7.70, ζ₂ₛ,₂ₚ = 2.275). Omits the small redistribution caused by bonding.' },
+        { tag: 'ARTISTIC', text: 'Brightness curve and colours (which atom the density belongs to) are visual choices.' },
+      ],
+      stats: [zoomStat, { label: 'Electrons', value: '10 (O: 8, H: 1 each)' }, { label: 'Dipole moment', value: '1.85 D (measured)' }],
+    };
+    if (L >= 4.2) return {
+      title: 'The proton · true size',
+      mode: 'SCIENTIFIC REALITY',
+      subtitle: 'At last the nucleus at its real size: about 0.84 femtometres across — some 60,000 times smaller than the atom around it.',
+      accuracy: [
+        { tag: 'MEASURED', text: 'Proton charge radius 0.8414 fm (CODATA). Mass 938.27 MeV/c², only ~1% of which comes from the quarks’ own masses.' },
+        { tag: 'ARTISTIC', text: 'The interior is a cartoon of quantum chromodynamics: three valence quarks (u, u, d) shown with their colour charge, gluon flux tubes and a fizz of virtual quark pairs. Quarks do not have definite positions or sizes.' },
+      ],
+      stats: [zoomStat],
+    };
+    if (L > 1.6) return {
+      title: 'Inside the atom · almost nothing',
+      mode: 'SCIENTIFIC REALITY',
+      subtitle: 'You are inside the electron cloud, falling toward the nucleus. Nearly all of an atom is empty space: the proton takes up about 10⁻¹⁵ of its volume. Keep scrolling.',
+      accuracy: [{ tag: 'MODEL', text: 'The electron cloud is still there, but so diffuse at this magnification that it is almost invisible.' }],
+      stats: [zoomStat, { label: 'Proton / atom size', value: '≈ 1 : 60 000' }],
+    };
     const { n, l, m } = s.atom;
     const rmp = mostProbableRadius(n, l);
     const fit = fitFor(n, l) * s.atom.scale;
     // proton radius 0.84 fm; a₀ = 52 918 fm
-    const protonTrue = (0.84 / 52918) * fit;
-    const exaggeration = Math.round(0.12 / protonTrue);
+    const protonTrue = PROTON_RADIUS_A0 * fit;
+    const exaggeration = Math.max(1, Math.round(0.035 / protonTrue));
     return {
       title: `Hydrogen · ${orbitalName(n, l, m)} orbital`,
       mode: 'SCIENTIFIC REALITY',
-      subtitle: 'Each dot is a possible position of the electron, drawn at random from |ψ|². There is no orbit — only probability.',
+      subtitle: 'There is no orbit — only probability. Scroll out to see the molecule this atom belongs to; scroll in to fall toward the nucleus. Press C to fly freely.',
       accuracy: [
         { tag: 'MODEL', text: 'Exact solution of the non-relativistic Schrödinger equation for hydrogen (ignores spin, fine structure, Lamb shift).' },
         { tag: 'SIMULATION', text: `The glow is |ψ_nlm|² integrated along every view ray (volumetric, evaluated exactly per pixel). The sparkles are ${(POINTS / 1000).toFixed(0)}k random position measurements drawn from |ψ|². Colour = sign of the real wavefunction (amber +, blue −).` },
         ...(this.superT >= 0 || this.transitionHz ? [{ tag: 'MODEL' as const, text: `During a transition the electron is in a superposition of both states; its charge density sloshes at ΔE/h ≈ ${(this.transitionHz / 1e15).toFixed(2)} PHz — that oscillating dipole emits the photon. Shown slowed by ~10¹⁵.` }] : []),
-        { tag: 'ARTISTIC', text: `Studio lighting, brightness curve, depth-of-field blur, twinkling and the morph between states are visual. The proton is drawn ~${exaggeration.toLocaleString()}× too large.` },
+        { tag: 'ARTISTIC', text: `Studio lighting, brightness curve, depth-of-field blur, twinkling and the morph between states are visual. At this zoom the proton marker is ~${exaggeration.toLocaleString()}× too large — scroll in (zoom ×10⁵) to see it at true size.` },
       ],
       stats: [
+        zoomStat,
         { label: 'Quantum numbers', value: `n=${n}  l=${l}  m=${m}` },
         { label: 'Energy', value: `${energyEV(n).toFixed(3)} eV` },
         { label: 'Most probable r', value: `${rmp.toFixed(2)} a₀ = ${(rmp * 0.0529).toFixed(3)} nm` },

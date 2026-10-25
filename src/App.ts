@@ -123,6 +123,7 @@ export class App implements InputHost {
   }
 
   loadWorld(w: WorldState, resumed = false) {
+    w.observer ??= { size: 1.7 }; // worlds saved before the scale engine existed
     this.state = w;
     const e = this.engine;
     e.state = w;
@@ -136,6 +137,7 @@ export class App implements InputHost {
     this.hud.closeDialogue();
     this.refreshCard();
     this.audio.ambience(w.activeRealm);
+    this.applyObserverFor(w.activeRealm);
     if (resumed) {
       const n = w.objects.length, d = w.story.transcript.filter((t) => t.speaker === 'player').length;
       this.hud.system(`Welcome back to “${w.name}”. Resumed in ${REALM_INFO[w.activeRealm].title} — ${n} creation${n === 1 ? '' : 's'}, ${w.portals.length} portal${w.portals.length === 1 ? '' : 's'}, ${d} thing${d === 1 ? '' : 's'} said to villagers.`);
@@ -153,6 +155,17 @@ export class App implements InputHost {
         ? `${f.value.toFixed(0)} fps · cpu ${f.frameMs.toFixed(1)} ms${this.lastDirectorMs !== undefined ? ` · director ${this.lastDirectorMs} ms` : ''}${this.hands.running ? ` · hands ${this.hands.inferMs.toFixed(1)} ms @${this.hands.detectFps.toFixed(0)}Hz` : ''}`
         : `${f.value.toFixed(0)} fps`;
     }
+  }
+
+  /** Entering a realm: keep the observer's size where it makes sense, otherwise adopt the realm's natural scale. */
+  private applyObserverFor(realm: RealmId) {
+    const size = this.state.observer?.size ?? 1.7;
+    const natural = realm === 'atom' ? 1e-10 / this.state.atom.scale : realm === 'cosmos' ? Math.max(size, 1.7) : 1.7;
+    const fits = realm === 'atom' ? size < 1e-6 : realm === 'cosmos' ? true : size >= 1e-6 && size <= 2e3;
+    const use = fits ? size : natural;
+    if (use !== size) this.state = { ...this.state, observer: { size: use } };
+    if (realm !== 'cosmos' || size > 2e3) this.engine.realm.applyObserver(use, this.engine.rig);
+    this.hud.setObserver(use);
   }
 
   refreshCard() {
@@ -190,8 +203,21 @@ export class App implements InputHost {
           this.audio.sfx('warp');
           await this.engine.transitionTo(to, cmd.op === 'enter_portal' ? (result.data?.portal as string) : undefined, REALM_COLOR[to]);
           this.audio.ambience(to);
+          this.applyObserverFor(to);
           this.refreshCard();
         }
+        break;
+      }
+      case 'set_scale': {
+        const to = state.activeRealm;
+        if (to !== prevRealm) {
+          this.closeDialogue(true);
+          this.audio.sfx('warp');
+          await this.engine.transitionTo(to, undefined, (state.observer.size < (this.state.observer?.size ?? 1.7) ? '#7df9ff' : '#ffd27d'));
+          this.audio.ambience(to);
+        }
+        this.engine.realm.applyObserver(state.observer.size, this.engine.rig);
+        this.refreshCard();
         break;
       }
       case 'open_portal': this.audio.sfx('portal'); break;
@@ -238,6 +264,7 @@ export class App implements InputHost {
 
   setState(s: WorldState) {
     this.state = s;
+    if (s.observer) this.hud.setObserver(s.observer.size);
     this.engine.sync(s);
     this.scheduleSave();
   }
@@ -416,7 +443,7 @@ export class App implements InputHost {
       const e = this.engine.realm.objects.get(sel.id);
       if (e) e.obj = { ...e.obj, scale: pend.scale };
     } else if (this.state.activeRealm === 'atom') {
-      pend.atomScale = Math.min(8, Math.max(0.2, (pend.atomScale ?? this.state.atom.scale) * f));
+      pend.atomScale = Math.min(300000, Math.max(0.0005, (pend.atomScale ?? this.state.atom.scale) * f));
       (this.engine.realm as Atom as any).scaleTarget = pend.atomScale;
     } else return;
     this.flushPendingSoon();
@@ -439,7 +466,7 @@ export class App implements InputHost {
       const id = this.state.selectedId;
       if (p.scale !== undefined && id) this.commit({ op: 'transform_object', target: id, scale_to: +p.scale.toFixed(3) });
       if (p.rot !== undefined && id) this.commit({ op: 'transform_object', target: id, rotate_by: [0, +p.rot.toFixed(4), 0] });
-      if (p.atomScale !== undefined) this.commit({ op: 'atom_set_view', scale: +p.atomScale.toFixed(3) });
+      if (p.atomScale !== undefined) this.commit({ op: 'atom_set_view', scale: +p.atomScale.toPrecision(4) });
     }, 350);
   }
 
@@ -512,6 +539,27 @@ export class App implements InputHost {
     this.engine.renderer.domElement.style.cursor = t ? 'pointer' : 'grab';
   }
 
+  /** Scroll: powers-of-ten zoom in the atom realm (orbit view); camera zoom/fly elsewhere. */
+  wheel(delta: number) {
+    if (this.state.activeRealm === 'atom' && this.engine.rig.mode === 'orbit') {
+      const prev = this.state.selectedId;
+      this.state = { ...this.state, selectedId: undefined };
+      this.scaleSelected(Math.exp(-delta * 0.0012));
+      this.state = { ...this.state, selectedId: prev };
+    } else this.engine.rig.zoom(delta);
+  }
+
+  toggleFly() {
+    const rig = this.engine.rig;
+    if (rig.mode === 'fly') {
+      this.engine.placeCameraOnArrival(this.state.activeRealm);
+      this.hud.system('Camera: guided view.', 'ok');
+    } else {
+      rig.setFly();
+      this.hud.system('Free-fly POV: drag to look · WASD to move · E/Q up/down · Shift faster · C to return. You slow down automatically near things.', 'ok');
+    }
+  }
+
   hotkey(k: string, down: boolean): boolean {
     if (k === 'v') { down ? this.voice.start() : this.voice.stop(); return true; }
     if (!down) return false;
@@ -520,6 +568,7 @@ export class App implements InputHost {
       case 't': case 'enter': this.hud.input.focus(); return true;
       case 'h': case '?': this.hud.toggleHelp(); return true;
       case 'g': this.toggleHands(); return true;
+      case 'c': this.toggleFly(); return true;
       case '`': this.showPerf = !this.showPerf; return true;
       case ' ': this.menuOpen() ? this.hud.closeRadial() : this.openCreateMenu(innerWidth / 2, innerHeight / 2); return true;
       case 'f': this.push(new THREE.Vector2(0, 0), 1.5); return true;

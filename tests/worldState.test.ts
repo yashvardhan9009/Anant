@@ -138,3 +138,15 @@ describe('scientific honesty in the reducer', () => {
     expect(r.state.portals[0].position[1]).toBeGreaterThanOrEqual(2.2);
   });
 });
+
+describe('powers-of-ten zoom', () => {
+  it('accepts zoom from liquid water to the proton and describes it', () => {
+    let s = createWorld();
+    let r = execute(s, { op: 'atom_set_view', scale: 150000 });
+    expect(r.result.message).toMatch(/proton at its true size/);
+    r = execute(r.state, { op: 'atom_set_view', scale: 0.06 });
+    expect(r.result.message).toMatch(/liquid water/);
+    r = execute(r.state, { op: 'atom_set_view', scale_by: 0.001 });
+    expect(r.state.atom.scale).toBeCloseTo(0.0005, 6);
+  });
+});

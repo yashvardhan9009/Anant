@@ -185,6 +185,44 @@ export function parseIntent(input: string, world: WorldState): ParseOutput {
       push({ op: isTransition ? 'atom_transition' : 'atom_set_orbital', ...orb });
       continue;
     }
+    // ——— universal scale: the user's apparent size ———
+    const meters = t.match(/make me (\d+(?:\.\d+)?)\s*(m|meters?|metres?|km|kilometers?)\s*(tall|big|high)?/);
+    const scalePreset: string | undefined =
+      /(hold the sun|sun in my hands?|large enough to (hold|grab) the sun)/.test(t) ? 'hold_sun'
+      : /(solar system (fit|in) (in )?my hands?|(entire|whole) solar system)/.test(t) ? 'solar_system'
+      : /(thousands of galaxies|observable universe|cosmic web|zoom out .*galax)/.test(t) ? 'galaxies'
+      : /(see|view|show) .*(entire |whole )?milky way|outside (of )?the milky way|zoom out .*milky way/.test(t) ? 'milky_way'
+      : /(bigger|larger) than (the )?sun/.test(t) ? 'sun'
+      : /(size of|as (large|big) as|bigger than) jupiter/.test(t) ? 'jupiter'
+      : /(size of|as (large|big) as) (the )?earth|bigger than (the )?earth/.test(t) ? 'earth'
+      : /(human|normal|regular|my) size|back to (my )?(normal|human)/.test(t) ? 'human'
+      : /(shrink|make) me .*(molecul)/.test(t) ? 'molecule'
+      : /(shrink|make) me .*(individual atoms|see atoms|among (the )?atoms)/.test(t) ? 'atoms'
+      : /(shrink|make) me .*(atom|atomic)/.test(t) ? 'atom'
+      : /(shrink|make) me .*(cell)/.test(t) ? 'cell'
+      : /(shrink|make) me .*(virus)/.test(t) ? 'virus'
+      : /(shrink|make) me .*(proton|nucleus)/.test(t) ? 'proton'
+      : /(make me|i want to be) (as tall as|the size of) (a )?(building|tower)/.test(t) ? 'building'
+      : undefined;
+    if (meters) {
+      const v = parseFloat(meters[1]) * (/^k/.test(meters[2]) ? 1000 : 1);
+      push({ op: 'set_scale', size_m: v });
+      continue;
+    }
+    if (scalePreset) { push({ op: 'set_scale', preset: scalePreset }); continue; }
+    if (/^ ?(make me|i want to be) (much |a lot |way )?(smaller|tiny|tinier)|^ ?shrink me/.test(t)) { push({ op: 'set_scale', factor: /(much|a lot|way)/.test(t) ? 0.001 : 0.1 }); continue; }
+    if (/^ ?(make me|i want to be) (much |a lot |way )?(bigger|larger|huge|giant|taller)|^ ?grow me/.test(t)) { push({ op: 'set_scale', factor: /(much|a lot|way)/.test(t) ? 1000 : 10 }); continue; }
+
+    // powers-of-ten zoom around the atom
+    const zoomTo = /(liquid water|glass of water|many molecules|sea of molecules)/.test(t) ? 0.06
+      : /(water molecule|h2o|molecule|molecular)/.test(t) ? 0.35
+      : /(proton|nucleus|quark|femto)/.test(t) && /(inside|into|zoom|show|see|go|take|close)/.test(t) && !/(hide|remove)/.test(t) ? 150000
+      : /(back to|whole|single|one) (the )?atom|atomic scale/.test(t) ? 1 : undefined;
+    if (zoomTo !== undefined) {
+      ensureRealm('atom');
+      push({ op: 'atom_set_view', scale: zoomTo });
+      continue;
+    }
     if (/(most likely|most probable|highest probability|where .*electron .*(found|be))/.test(t)) {
       ensureRealm('atom');
       push({ op: 'atom_set_view', highlight_most_probable: true });

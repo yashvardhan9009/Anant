@@ -207,3 +207,5 @@ ul.clues li { margin-bottom: 4px; }
 .card details[open] summary::before { content: '▾ '; }
 .hint { opacity: .75; }
 .bar-in { background: rgba(10,9,20,.62); }
+
+.observer-size { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: .06em; }

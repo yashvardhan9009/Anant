@@ -26,6 +26,7 @@ export interface InputHost {
   push(ndc: THREE.Vector2, strength: number): void;
   hover(p: PickResult, x: number, y: number): void;
   hotkey(key: string, down: boolean): boolean;
+  wheel(delta: number): void;
 }
 
 export class InputRouter {
@@ -115,7 +116,7 @@ export class InputRouter {
     e.preventDefault();
     if (e.shiftKey) this.host.scaleSelected(e.deltaY < 0 ? 1.08 : 1 / 1.08);
     else if (e.altKey) this.host.rotateSelected(e.deltaY < 0 ? 0.15 : -0.15);
-    else this.host.engine.rig.zoom(e.deltaY);
+    else this.host.wheel(e.deltaY);
   };
 
   private onKey(e: KeyboardEvent, down: boolean) {
@@ -125,7 +126,7 @@ export class InputRouter {
       e.preventDefault();
       return;
     }
-    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'].includes(k)) {
+    if (['w', 'a', 's', 'd', 'e', 'q', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'].includes(k)) {
       if (down) this.host.engine.rig.keys.add(k);
       else this.host.engine.rig.keys.delete(k);
     }
