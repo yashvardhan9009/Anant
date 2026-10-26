@@ -29,17 +29,19 @@ export const GradeShader = {
     uHighlights: { value: new THREE.Color('#fff2e0') },
     uVignette: { value: 0.55 },
     uBars: { value: 0 },
+    uResolution: { value: new THREE.Vector2(1920, 1080) },
+    uGrain: { value: 0.006 },
   },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse; uniform float uTime, uAmt, uFlash, uContrast, uSat, uVignette, uBars;
-    uniform vec3 uColor, uShadows, uHighlights; varying vec2 vUv;
+    uniform vec3 uColor, uShadows, uHighlights; uniform vec2 uResolution; uniform float uGrain; varying vec2 vUv;
     float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
     void main(){
       vec2 c = vUv - 0.5; float r = length(c);
       float amt = uAmt*uAmt;
       // subtle lens chromatic aberration at the edges, stronger while warping
-      float ca = 0.0012*r*r*4.0 + amt*0.02;
+      float ca = 0.00012*r*r*4.0 + amt*0.02;
       vec3 col;
       if (amt > 0.001) {
         col = vec3(0.0);
@@ -56,17 +58,18 @@ export const GradeShader = {
       // grade (display space)
       float l = dot(col, vec3(0.2126,0.7152,0.0722));
       col = mix(vec3(l), col, uSat);
-      col = mix(col, col*uShadows*6.0 + col, (1.0-smoothstep(0.0,0.35,l))*0.18);
-      col = mix(col, col*uHighlights, smoothstep(0.45,1.0,l)*0.35);
-      col = (col - 0.5)*uContrast + 0.5;
+      col += uShadows * (1.0-smoothstep(0.0,0.4,l)) * l * 0.2;
+      col = mix(col, col*uHighlights, smoothstep(0.45,1.0,l)*0.12);
+      // A gentle S-curve retains shadow detail instead of clipping it away.
+      col = mix(col, smoothstep(vec3(0.0), vec3(1.0), col), clamp((uContrast-1.0)*2.0, 0.0, 0.5));
       col = clamp(col, 0.0, 1.0);
       col = mix(col, uColor*1.4 + 0.5, uFlash);
       col *= 1.0 - smoothstep(0.35, 0.95, r)*(uVignette + amt*0.4);
-      col += (h(vUv*vec2(1920.0,1080.0) + fract(uTime)*91.0) - 0.5) * 0.022;
+      col += (h(floor(vUv*uResolution) + floor(uTime*24.0)*91.0) - 0.5) * uGrain * (0.35 + 0.65*sin(clamp(l,0.0,1.0)*3.14159));
       // letterbox bars during cinematic transitions
       float bar = uBars*0.11;
       if (vUv.y < bar || vUv.y > 1.0 - bar) col = vec3(0.0);
-      gl_FragColor = vec4(col, 1.0);
+      gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
     }`,
 };
 

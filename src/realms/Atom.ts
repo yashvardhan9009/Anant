@@ -72,7 +72,7 @@ export class Atom extends Realm {
   }
 
   protected build() {
-    this.look = { exposure: 0.95, bloom: [0.45, 0.5, 0.9], contrast: 1.1, saturation: 1.06, shadows: '#04122a', highlights: '#ffe2c4', vignette: 0.75, godRays: 0 };
+    this.look = { exposure: 1.0, bloom: [0.24, 0.4, 1.1], contrast: 1.06, saturation: 0.96, shadows: '#081526', highlights: '#f4e9dc', vignette: 0.35, godRays: 0 };
     // Studio backdrop: deep navy falling off to steel blue, like a macro product shot
     this.studio = new THREE.ShaderMaterial({
       uniforms: { uTint: { value: new THREE.Color('#3a78c0') }, uTime: { value: 0 } },

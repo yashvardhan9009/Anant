@@ -70,6 +70,11 @@ export abstract class Realm {
 
   protected abstract build(): void;
 
+  /** Invalidate live state when a saved world replaces the current one. */
+  resetForWorld() {
+    this.objects.grabbedId = undefined;
+  }
+
   groundY(_x: number, _z: number): number {
     return 0;
   }

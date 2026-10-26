@@ -140,7 +140,7 @@ export class OrbitalVolume {
         uRN: { value: 1 }, uYN: { value: 1 }, uRN2: { value: 1 }, uYN2: { value: 1 }, uKA: { value: 1 }, uKB: { value: 1 },
         uMix: { value: 0 }, uSuper: { value: 0 }, uA: { value: 1 }, uB: { value: 0 }, uPhase: { value: 0 },
         uInvFit: { value: 1 }, uRadius: { value: 8 }, uSlice: { value: 0 }, uTime: { value: 0 }, uGain: { value: 0.11 },
-        uSteps: { value: QUALITY.low ? 28 : 120 }, uOpacity: { value: 1 },
+        uSteps: { value: QUALITY.orbitalSteps }, uOpacity: { value: 1 },
         uPos: { value: new THREE.Color('#ff9a3c') }, uNeg: { value: new THREE.Color('#3fa9ff') },
       },
       vertexShader: `varying vec3 vWorld; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,

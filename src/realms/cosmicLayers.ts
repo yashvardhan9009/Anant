@@ -73,15 +73,22 @@ export function proceduralGalaxyTexture(kind: 'spiral' | 'elliptical', seed = 1)
   return t;
 }
 
-/** Image impostor: a telescope image on a soft-edged disc that faces the camera. */
-function impostor(tex: THREE.Texture, size: number) {
+/** Telescope images keep their photographed aspect ratio and field of view. */
+function impostor(tex: THREE.Texture, size: number, photograph = false) {
   const m = new THREE.ShaderMaterial({
-    uniforms: { uMap: { value: tex }, uOpacity: { value: 1 } },
+    uniforms: { uMap: { value: tex }, uOpacity: { value: 1 }, uAspect: { value: new THREE.Vector2(1, 1) }, uPhotograph: { value: photograph ? 1 : 0 } },
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    vertexShader: `varying vec2 vUv; void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0); mv.xy += position.xy * vec2(length(modelMatrix[0].xyz)); gl_Position = projectionMatrix * mv; }`,
-    fragmentShader: `uniform sampler2D uMap; uniform float uOpacity; varying vec2 vUv; void main(){ vec2 q = vUv - 0.5; float edge = smoothstep(0.5, 0.36, length(q)); vec3 c = texture2D(uMap, vUv).rgb; gl_FragColor = vec4(c * edge * uOpacity * 1.2, edge * uOpacity); }`,
+    vertexShader: `uniform vec2 uAspect; varying vec2 vUv; void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0); mv.xy += position.xy * uAspect * vec2(length(modelMatrix[0].xyz)); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `uniform sampler2D uMap; uniform float uOpacity, uPhotograph; varying vec2 vUv; void main(){ vec2 q = abs(vUv - 0.5); float d = mix(length(q), max(q.x, q.y), uPhotograph); float edge = 1.0 - smoothstep(0.42, 0.5, d); vec3 c = texture2D(uMap, vUv).rgb; gl_FragColor = vec4(c * 1.1, edge * uOpacity); }`,
   });
   const p = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), m);
+  p.onBeforeRender = () => {
+    const img = tex.image;
+    if (photograph && img?.width && img?.height) {
+      const longest = Math.max(img.width, img.height);
+      m.uniforms.uAspect.value.set(img.width / longest, img.height / longest);
+    }
+  };
   p.scale.setScalar(size);
   p.frustumCulled = false;
   return p;
@@ -219,7 +226,7 @@ export class MilkyWayModel extends Layer {
       const p = galacticXYZ(o.l, o.b, (o.d_pc ?? 0) / this.U);
       this.positions.set(o.id, p);
       const img = o.images[0];
-      const imp = impostor(img ? imageTexture(img.file) : proceduralGalaxyTexture('elliptical', 3), Math.max(o.size_kpc * 10, 0.25));
+      const imp = impostor(img ? imageTexture(img.file) : proceduralGalaxyTexture('elliptical', 3), Math.max(o.size_kpc * 10, 0.25), !!img);
       imp.position.copy(p);
       (imp.material as THREE.ShaderMaterial).uniforms.uOpacity.value = 1;
       this.mats.push(imp.material as THREE.ShaderMaterial);
@@ -285,7 +292,7 @@ export class GalaxyField extends Layer {
       const p = galacticXYZ(o.l, o.b, o.d_mpc ?? 0);
       this.positions.set(o.id, p);
       const img = o.images[0];
-      const imp = impostor(img ? imageTexture(img.file) : proceduralGalaxyTexture(/ellip/i.test(o.kind) ? 'elliptical' : 'spiral', k++), (o.size_kpc / 1000) * 1.4);
+      const imp = impostor(img ? imageTexture(img.file) : proceduralGalaxyTexture(/ellip/i.test(o.kind) ? 'elliptical' : 'spiral', k++), (o.size_kpc / 1000) * 1.4, !!img);
       imp.position.copy(p);
       this.mats.push(imp.material as THREE.ShaderMaterial);
       const lb = label(o.name.split(' (')[0]);

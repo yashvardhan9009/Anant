@@ -29,7 +29,7 @@ export const PREFERRED_MODELS = [
 
 export function configFromEnv(env = process.env): LlmConfig {
   return {
-    apiKey: env.NEBIUS_API_KEY || undefined,
+    apiKey: env.ANANT_OFFLINE === '1' ? undefined : env.NEBIUS_API_KEY || undefined,
     baseUrl: (env.NEBIUS_BASE_URL || 'https://api.tokenfactory.nebius.com/v1').replace(/\/+$/, ''),
     model: env.ANANT_MODEL || undefined,
     timeoutMs: Number(env.ANANT_LLM_TIMEOUT_MS || 15000),

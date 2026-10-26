@@ -28,26 +28,28 @@ export class Nexus extends Realm {
   arrivalPitch = 0.16;
 
   protected build() {
-    this.look = { exposure: 1.0, bloom: [0.55, 0.6, 0.82], contrast: 1.14, saturation: 1.02, shadows: '#08061a', highlights: '#eae4ff', vignette: 0.7, godRays: 0.4 };
+    this.look = { exposure: 1.0, bloom: [0.28, 0.45, 1.15], contrast: 1.08, saturation: 0.92, shadows: '#0b1220', highlights: '#f1e8dc', vignette: 0.32, godRays: 0.08 };
     this.scene.fog = new THREE.FogExp2('#07061a', 0.006);
     const u = this.sky.uniforms;
     u.uTop.value.set('#010106'); u.uHorizon.value.set('#0c0a22'); u.uBottom.value.set('#010104');
-    u.uNebA.value.set('#4a2aa8'); u.uNebB.value.set('#0e6a8a'); u.uNebula.value = 0.55; u.uBand.value = 0.7; u.uStars.value = 1.2;
+    u.uNebA.value.set('#34366d'); u.uNebB.value.set('#16495e'); u.uNebula.value = 0.3; u.uBand.value = 0.18; u.uStars.value = 0.75;
     this.envSource = this.sky.mesh;
     this.scene.add(this.sky.mesh, this.motes, this.weather.points, this.amb);
     this.sunWorld = new THREE.Vector3(0, 10, -4);
 
-    const key = new THREE.PointLight('#9a7bff', 60, 50, 2);
+    const key = new THREE.PointLight('#c2d4ff', 95, 50, 2);
     key.position.set(0, 10, -4);
     const rimL = new THREE.SpotLight('#5ad8ff', 220, 90, 0.45, 0.6, 1.6);
     rimL.position.set(-30, 30, 20);
     rimL.castShadow = QUALITY.shadows;
-    rimL.shadow.mapSize.set(1024, 1024);
+    rimL.shadow.mapSize.set(QUALITY.shadowMap, QUALITY.shadowMap);
+    rimL.shadow.normalBias = 0.025;
+    rimL.shadow.bias = -0.0001;
     const warm = new THREE.SpotLight('#ffb27a', 120, 90, 0.5, 0.7, 1.6);
     warm.position.set(28, 22, -10);
     this.scene.add(key, rimL, warm);
 
-    this.metal = applyPBR(new THREE.MeshStandardMaterial({ color: '#9a98a8', metalness: 0.92, roughness: 1 }), darkMetal(), 1, 0.6);
+    this.metal = applyPBR(new THREE.MeshStandardMaterial({ color: '#a6adb8', metalness: 0.78, roughness: 0.62 }), darkMetal(), 1, 0.3);
 
     // Polished obsidian floor: a true planar reflection under a glossy, veined stone layer.
     if (QUALITY.reflections) {

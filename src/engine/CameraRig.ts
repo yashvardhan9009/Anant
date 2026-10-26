@@ -199,7 +199,7 @@ export class CameraRig {
         if (e >= 1) this.fly = undefined;
       } else if (this.follow) {
         const p = this.follow();
-        if (p) this.target.lerp(p, Math.min(1, dt * 8));
+        if (p) this.target.copy(p);
         if (this.followRadius) this.radius += (this.followRadius - this.radius) * Math.min(1, dt * 3);
       }
       const s = Math.sin(this.phi);
@@ -213,6 +213,16 @@ export class CameraRig {
       this.camera.lookAt(this.target);
       this.adaptNear();
     }
+    this.camera.updateMatrixWorld();
+  }
+
+  /** Follow the subject's freshly simulated position without a frame of orbital lag. */
+  trackFollow() {
+    if (this.mode !== 'orbit' || this.fly || !this.follow) return;
+    const p = this.follow();
+    if (!p) return;
+    this.camera.position.add(p.clone().sub(this.target));
+    this.target.copy(p);
     this.camera.updateMatrixWorld();
   }
 }

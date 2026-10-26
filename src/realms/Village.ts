@@ -44,6 +44,7 @@ interface NpcView {
   target: THREE.Vector3;
   armL: THREE.Mesh;
   armR: THREE.Mesh;
+  legs: THREE.Group[];
   ring: THREE.Mesh;
   walking: boolean;
   phase: number;
@@ -72,9 +73,22 @@ export class Village extends Realm {
   /** fired when an NPC that walked up to the player arrives (opening line) */
   onApproach?: (npcId: string) => void;
 
+  resetForWorld() {
+    super.resetForWorld();
+    this.greeted = false;
+    this.talkingTo = undefined;
+    for (const v of this.npcs.values()) {
+      v.approachPlayer = false;
+      v.walking = false;
+      v.ring.visible = false;
+      const wp = WAYPOINTS[v.def.routine.dusk];
+      v.root.position.set(wp[0], this.groundY(wp[0], wp[1]), wp[1]);
+    }
+  }
+
   protected build() {
     const q = QUALITY;
-    this.look = { exposure: 1.1, bloom: [0.42, 0.55, 0.86], contrast: 1.16, saturation: 0.95, shadows: '#0a2030', highlights: '#ffcf9a', vignette: 0.6, godRays: 0.6 };
+    this.look = { exposure: 1.05, bloom: [0.2, 0.45, 1.2], contrast: 1.08, saturation: 0.94, shadows: '#101b26', highlights: '#f9e4c6', vignette: 0.3, godRays: 0.22 };
     this.scene.fog = new THREE.FogExp2('#5a3e4a', 0.012);
     this.sky.uniforms.uClouds.value = 0.9;
     this.envSource = this.sky.mesh;
@@ -361,7 +375,7 @@ export class Village extends Realm {
 
     for (const def of NPCS) this.addNpc(def);
     this.terrain = ground;
-    this.upgradeWithAssets();
+    this.assetsReady = this.upgradeWithAssets().catch(error => console.warn('Village asset upgrade failed', error));
   }
 
   private footprints: { x: number; z: number; r: number }[] = [];
@@ -375,6 +389,7 @@ export class Village extends Realm {
   private hdr?: { texture: THREE.DataTexture; sunDir: THREE.Vector3; horizon: THREE.Color; zenith: THREE.Color };
   /** which real assets were loaded (shown in the reality card) */
   assetReport: string[] = [];
+  assetsReady: Promise<void> = Promise.resolve();
 
   /**
    * Replace procedural stand-ins with scanned CC0 assets (Poly Haven) where available.
@@ -421,6 +436,8 @@ export class Village extends Realm {
       if (this.env) this.applyEnv(this.env);
     }
 
+    // Preserve photographed lighting and materials, but use lightweight foliage.
+    if (QUALITY.low) { this.assetReport = rep; return; }
     const foliage = (mode: 'tree' | 'plant') => (m: THREE.MeshStandardMaterial) => {
       if (m.alphaTest > 0 || m.transparent) { m.side = THREE.DoubleSide; m.alphaTest = Math.max(m.alphaTest, 0.45); m.transparent = false; }
       addWind(m, mode);
@@ -560,20 +577,24 @@ export class Village extends Realm {
     const body = new THREE.Group();
     root.add(body);
     const fabric = cloth();
-    const cloak = applyPBR(new THREE.MeshStandardMaterial({ color: def.color, roughness: 1 }), fabric, 3, 0.8);
+    const cloakColor = new THREE.Color(def.color).lerp(new THREE.Color('#4b4850'), 0.45);
+    const cloak = applyPBR(new THREE.MeshStandardMaterial({ color: cloakColor, roughness: 1 }), fabric, 6, 0.35);
     const under = applyPBR(new THREE.MeshStandardMaterial({ color: new THREE.Color(def.color).multiplyScalar(0.45), roughness: 1 }), fabric, 3, 0.8);
-    const skin = new THREE.MeshPhysicalMaterial({ color: '#c99474', roughness: 0.55, sheen: 0.3, sheenColor: new THREE.Color('#ffccaa') });
+    const skin = new THREE.MeshPhysicalMaterial({ color: '#b8866b', roughness: 0.72, sheen: 0.12, sheenColor: new THREE.Color('#e9b29c') });
     const hair = new THREE.MeshStandardMaterial({ color: def.id === 'maera' ? '#7a3a1c' : def.id === 'doran' ? '#1c1410' : '#2a1e16', roughness: 0.7 });
     const leather = new THREE.MeshStandardMaterial({ color: '#3a2618', roughness: 0.6 });
     // robe: smooth lathe with flared hem and folds
     const prof: THREE.Vector2[] = [];
-    for (let i = 0; i <= 16; i++) {
-      const y = (i / 16) * 1.42;
-      const t = y / 1.42;
-      const r = 0.43 - t * 0.2 + Math.pow(1 - t, 6) * 0.05 + (t > 0.82 ? (t - 0.82) * 0.5 : 0) - (t > 0.93 ? (t - 0.93) * 3.2 : 0);
-      prof.push(new THREE.Vector2(Math.max(0.02, r), y));
+    const shortTunic = def.id === 'ilsa' || def.id === 'doran';
+    const hem = shortTunic ? 0.67 : 0.15;
+    for (let i = 0; i <= 32; i++) {
+      const y = hem + (i / 32) * (1.45 - hem);
+      const waist = 0.20 + 0.045 * Math.exp(-(((y - 1.28) / 0.12) ** 2));
+      const skirt = Math.max(0, 0.96 - y) * (shortTunic ? 0.12 : 0.24);
+      const neck = 1 - 0.55 * THREE.MathUtils.smoothstep(y, 1.34, 1.45);
+      prof.push(new THREE.Vector2((waist + skirt) * neck, y));
     }
-    const robeG = new THREE.LatheGeometry(prof, 36);
+    const robeG = new THREE.LatheGeometry(prof, 64);
     const rp = robeG.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < rp.count; i++) {
       const x = rp.getX(i), y = rp.getY(i), z = rp.getZ(i);
@@ -583,41 +604,68 @@ export class Village extends Realm {
     robeG.computeVertexNormals();
     const robe = new THREE.Mesh(robeG, cloak);
     robe.castShadow = true;
-    const belt = new THREE.Mesh(new THREE.TorusGeometry(0.29, 0.035, 8, 32), leather);
+    const belt = new THREE.Mesh(new THREE.TorusGeometry(0.215, 0.025, 12, 48), leather);
     belt.rotation.x = Math.PI / 2;
     belt.scale.z = 0.82;
     belt.position.y = 0.95;
     const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.12, 16), under);
     collar.position.y = 1.47;
-    const headG = new THREE.SphereGeometry(0.155, 32, 24);
-    headG.scale(0.92, 1.08, 0.98);
+    const headG = new THREE.SphereGeometry(0.145, 48, 32);
+    const hp = headG.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < hp.count; i++) {
+      const y = hp.getY(i), jaw = 1 - 0.24 * (1 - THREE.MathUtils.smoothstep(y, -0.14, -0.02));
+      hp.setXYZ(i, hp.getX(i) * 0.88 * jaw, y * 1.22, hp.getZ(i) * 0.92);
+    }
+    headG.computeVertexNormals();
     const head = new THREE.Mesh(headG, skin);
     head.position.y = 1.66;
     head.castShadow = true;
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.07, 8), skin);
-    nose.rotation.x = Math.PI / 2;
-    nose.position.set(0, 1.65, 0.15);
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12), skin);
+    nose.scale.set(0.023, 0.045, 0.035);
+    nose.position.set(0, 1.655, 0.13);
     body.add(robe, belt, collar, head, nose);
     for (const sx of [-1, 1]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 6), new THREE.MeshStandardMaterial({ color: '#111', roughness: 0.2 }));
-      eye.position.set(sx * 0.055, 1.69, 0.135);
-      body.add(eye);
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.018, 20, 12), new THREE.MeshStandardMaterial({ color: '#b9b0a1', roughness: 0.35 }));
+      eye.scale.set(1, 0.55, 0.6);
+      eye.position.set(sx * 0.049, 1.695, 0.118);
+      const iris = new THREE.Mesh(new THREE.SphereGeometry(0.008, 12, 8), new THREE.MeshStandardMaterial({ color: def.id === 'ilsa' ? '#485e60' : '#51382b', roughness: 0.3 }));
+      iris.position.set(sx * 0.049, 1.695, 0.129);
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.0035, 10, 8), new THREE.MeshBasicMaterial({ color: '#080a0d' }));
+      pupil.position.set(sx * 0.049, 1.695, 0.136);
+      const brow = new THREE.Mesh(new THREE.CapsuleGeometry(0.008, 0.035, 4, 8), hair);
+      brow.rotation.z = Math.PI / 2 + sx * 0.12;
+      brow.position.set(sx * 0.052, 1.723, 0.113);
+      const ear = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), skin);
+      ear.scale.set(0.024, 0.038, 0.018); ear.position.set(sx * 0.126, 1.66, 0);
+      body.add(eye, iris, pupil, brow, ear);
+    }
+    const lips = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12), new THREE.MeshStandardMaterial({ color: '#966359', roughness: 0.85 }));
+    lips.scale.set(0.037, 0.009, 0.009); lips.position.set(0, 1.602, 0.123); body.add(lips);
+    const legs: THREE.Group[] = [];
+    for (const sx of [-1, 1]) {
+      const pivot = new THREE.Group();
+      pivot.position.set(sx * 0.11, 0.82, 0);
+      const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.58, 8, 20), under);
+      leg.position.set(0, -0.36, 0);
+      const boot = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.17, 8, 20), leather);
+      boot.rotation.x = Math.PI / 2; boot.scale.set(0.95, 1, 0.8); boot.position.set(0, -0.74, 0.05);
+      leg.castShadow = boot.castShadow = true; pivot.add(leg, boot); body.add(pivot); legs.push(pivot);
     }
     if (def.id === 'seren' || def.id === 'ilsa') {
-      const hood = new THREE.Mesh(new THREE.SphereGeometry(0.205, 28, 16, 0, Math.PI * 2, 0, Math.PI * 0.6), cloak);
-      hood.position.set(0, 1.68, -0.02);
-      hood.rotation.x = -0.35;
+      const hood = new THREE.Mesh(new THREE.SphereGeometry(0.18, 32, 20, 0, Math.PI * 2, 0, Math.PI * 0.46), cloak);
+      hood.position.set(0, 1.715, -0.025);
+      hood.rotation.x = 0.18;
       hood.castShadow = true;
       const cape = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.46, 1.2, 28, 6, true, Math.PI * 0.25, Math.PI * 1.5), addWind(cloak.clone(), 'cloth'));
       cape.position.y = 0.9;
-      cape.rotation.y = Math.PI;
+      cape.rotation.y = 0;
       (cape.material as THREE.Material).side = THREE.DoubleSide;
       cape.castShadow = true;
       body.add(hood, cape);
     } else {
       const hairM = new THREE.Mesh(new THREE.SphereGeometry(0.165, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.55), hair);
-      hairM.position.y = 1.68;
-      hairM.rotation.x = -0.25;
+      hairM.position.y = 1.715;
+      hairM.rotation.x = 0.12;
       body.add(hairM);
     }
     if (def.id === 'ilsa') {
@@ -674,7 +722,7 @@ export class Village extends Realm {
     const wp = WAYPOINTS[def.routine.dusk];
     root.position.set(wp[0], this.groundY(wp[0], wp[1]), wp[1]);
     this.scene.add(root);
-    this.npcs.set(def.id, { def, root, body, label, target: root.position.clone(), armL, armR, ring, walking: false, phase: Math.random() * 6, approachPlayer: false });
+    this.npcs.set(def.id, { def, root, body, label, target: root.position.clone(), armL, armR, legs, ring, walking: false, phase: Math.random() * 6, approachPlayer: false });
   }
 
   groundY(x: number, z: number) {
@@ -706,7 +754,9 @@ export class Village extends Realm {
     this.sun.position.set(...(presets.sunPos as [number, number, number]));
     this.sunWorld = (u.uSunDir.value as THREE.Vector3).clone().multiplyScalar(800);
     this.look.exposure = presets.exp;
-    this.look.godRays = e.timeOfDay === 'night' || e.weather === 'storm' ? 0 : e.timeOfDay === 'day' ? 0.25 : 0.6;
+    this.look.godRays = e.timeOfDay === 'night' || e.weather === 'storm' ? 0 : e.timeOfDay === 'day' ? 0.1 : 0.22;
+    this.look.contrast = 1.08;
+    this.look.saturation = 0.94;
     this.envDirty = true;
     this.sun.color.set(presets.sun);
     this.sun.intensity = presets.sunI * (e.weather === 'storm' || e.weather === 'rain' ? 0.45 : 1);
@@ -724,7 +774,7 @@ export class Village extends Realm {
     this.sky.mesh.visible = !useHdr;
     this.scene.background = useHdr ? this.hdr!.texture : null;
     this.envTexture = useHdr ? this.hdr!.texture : undefined;
-    this.scene.environmentIntensity = useHdr ? 0.45 : 1;
+    this.scene.environmentIntensity = useHdr ? 0.65 : 1;
     this.scene.backgroundIntensity = 0.9;
     if (useHdr) {
       const d = this.hdr!.sunDir.clone();
@@ -741,8 +791,8 @@ export class Village extends Realm {
       this.sun.intensity = (e.timeOfDay === 'day' ? 5 : 6) * (e.weather === 'rain' ? 0.45 : 1);
       this.sun.color.set(e.timeOfDay === 'day' ? '#fff0dc' : '#ffb070');
       this.look.exposure = e.timeOfDay === 'day' ? 0.7 : 0.85;
-      this.look.contrast = 1.2;
-      this.look.saturation = 1.05;
+      this.look.contrast = 1.08;
+      this.look.saturation = 0.96;
     }
     const fog = this.scene.fog as THREE.FogExp2;
     fog.color.copy(fogC);
@@ -824,6 +874,7 @@ export class Village extends Realm {
       const sw = v.walking ? Math.sin(t * 7 + v.phase) : Math.sin(t * 1.5 + v.phase) * 0.08;
       v.armL.rotation.x = sw * 0.6;
       v.armR.rotation.x = -sw * 0.6;
+      v.legs.forEach((leg, i) => { leg.rotation.x = v.walking ? sw * (i ? 0.35 : -0.35) : 0; });
       if (talking) v.armR.rotation.x = -0.4 + Math.sin(t * 5) * 0.25;
       v.body.position.y = v.walking ? Math.abs(Math.sin(t * 7 + v.phase)) * 0.06 : Math.sin(t * 1.5 + v.phase) * 0.015;
     }

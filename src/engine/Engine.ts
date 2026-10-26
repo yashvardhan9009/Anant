@@ -22,6 +22,7 @@ import { Village } from '../realms/Village';
 import { HeavyUniverse } from '../realms/HeavyUniverse';
 import { QUALITY } from './quality';
 import { GradeShader, GodRayShader, Look } from './look';
+import { ContactAO } from './ContactAO';
 
 export interface PickResult {
   objectId?: string;
@@ -42,6 +43,7 @@ export class Engine {
   bloom: UnrealBloomPass;
   warp: ShaderPass;
   godRays: ShaderPass;
+  contactAO?: ContactAO;
   pmrem: THREE.PMREMGenerator;
   private adapt = { low: 0, high: 0, ratio: 1 };
   css: CSS2DRenderer;
@@ -58,19 +60,21 @@ export class Engine {
   fps = { value: 0, frames: 0, acc: 0, frameMs: 0 };
   private raycaster = new THREE.Raycaster();
   private lastFocusSeq = 0;
+  private portalFrame = 0;
 
   constructor(private host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false });
     this.adapt.ratio = Math.min(window.devicePixelRatio || 1, QUALITY.maxPixelRatio);
     this.renderer.setPixelRatio(this.adapt.ratio);
     this.renderer.setSize(host.clientWidth, host.clientHeight);
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMapping = THREE.AgXToneMapping;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMappingExposure = 1.0;
     this.renderer.shadowMap.enabled = QUALITY.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     host.appendChild(this.renderer.domElement);
     this.pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.camera = new THREE.PerspectiveCamera(50, host.clientWidth / host.clientHeight, 0.05, 3000);
+    this.camera = new THREE.PerspectiveCamera(46, host.clientWidth / host.clientHeight, 0.05, 3000);
     this.portalCam = this.camera.clone();
     this.rig = new CameraRig(this.camera);
 
@@ -80,15 +84,24 @@ export class Engine {
     // HDR, multisampled composer: render → god rays → bloom (HDR) → tone map → film grade
     const rt = new THREE.WebGLRenderTarget(host.clientWidth, host.clientHeight, { type: THREE.HalfFloatType, samples: QUALITY.msaa });
     this.composer = new EffectComposer(this.renderer, rt);
+    this.composer.setPixelRatio(this.adapt.ratio);
     this.renderPass = new RenderPass(this.realms.nexus.scene, this.camera);
     this.godRays = new ShaderPass(GodRayShader);
     this.bloom = new UnrealBloomPass(new THREE.Vector2(host.clientWidth / 2, host.clientHeight / 2), 0.35, 0.45, 0.9);
     this.warp = new ShaderPass(GradeShader);
     this.composer.addPass(this.renderPass);
+    if (QUALITY.ambientOcclusion) {
+      this.contactAO = new ContactAO(this.realms.nexus.scene, this.camera);
+      this.contactAO.updateGtaoMaterial({ radius: 1.2, thickness: 0.6, distanceFallOff: 1, samples: 8, screenSpaceRadius: false });
+      this.contactAO.updatePdMaterial({ radius: 4, samples: 8 });
+      this.contactAO.blendIntensity = 0.45;
+      this.composer.addPass(this.contactAO);
+    }
     if (QUALITY.godRays) this.composer.addPass(this.godRays);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
     this.composer.addPass(this.warp);
+    this.warp.uniforms.uResolution.value.set(host.clientWidth * this.adapt.ratio, host.clientHeight * this.adapt.ratio);
     this.applyLook(this.realms.nexus.look);
 
     this.css = new CSS2DRenderer();
@@ -123,7 +136,8 @@ export class Engine {
     this.composer.setSize(w, h);
     this.css.setSize(w, h);
     const pr = this.renderer.getPixelRatio();
-    for (const p of this.portals.values()) p.resize(Math.floor(w * pr * 0.6), Math.floor(h * pr * 0.6));
+    this.warp.uniforms.uResolution.value.set(w * pr, h * pr);
+    for (const p of this.portals.values()) p.resize(Math.floor(w * pr * QUALITY.portalScale), Math.floor(h * pr * QUALITY.portalScale));
   }
 
   /** Sync all realms + portals to the authoritative state. */
@@ -140,7 +154,7 @@ export class Engine {
     for (const p of state.portals) {
       let v = this.portals.get(p.id);
       if (!v) {
-        v = new PortalView(p, Math.floor(this.host.clientWidth * pr * 0.6), Math.floor(this.host.clientHeight * pr * 0.6));
+        v = new PortalView(p, Math.floor(this.host.clientWidth * pr * QUALITY.portalScale), Math.floor(this.host.clientHeight * pr * QUALITY.portalScale));
         this.portals.set(p.id, v);
         this.realms[p.from].ensureBuilt();
         this.realms[p.from].scene.add(v.group);
@@ -162,7 +176,7 @@ export class Engine {
     if (kind === 'body') {
       const cos = r as Cosmos;
       const rad = cos.bodyRadius(id);
-      this.rig.focusOn(pt, Math.max(4, rad * 8), () => cos.focusPoint('body', id));
+      this.rig.focusOn(pt, Math.max(1.8, rad * 5), () => cos.focusPoint('body', id));
     } else if (kind === 'npc') this.rig.focusOn(pt, 3);
     else {
       const e = r.objects.get(id);
@@ -298,6 +312,8 @@ export class Engine {
   }
 
   private renderPortals() {
+    // Cache previews in the lightweight tier. Crossing still updates every frame.
+    if (QUALITY.low && this.portalFrame++ % 3 !== 0) return;
     const exitMat = new THREE.Matrix4();
     for (const pv of this.portals.values()) {
       if (pv.state.from !== this.active) continue;
@@ -352,7 +368,8 @@ export class Engine {
 
   frame() {
     const t0 = performance.now();
-    const rdt = Math.min(0.05, this.clock.getDelta());
+    const wallDt = this.clock.getDelta();
+    const rdt = Math.min(0.05, wallDt);
     const st = this.state;
     const frozen = st?.time.frozen ?? false;
     const dt = frozen ? 0 : rdt * (st?.time.scale ?? 1);
@@ -365,6 +382,7 @@ export class Engine {
       const visibleDest = new Set([...this.portals.values()].filter((p) => p.state.from === this.active).map((p) => p.state.to));
       for (const id of visibleDest) this.realms[id].update({ ...ctx, camera: this.portalCam, active: false });
       for (const p of this.portals.values()) if (p.state.from === this.active) p.update(this.t, rdt);
+      this.rig.trackFollow();
       this.checkPortalCrossing();
       this.renderPortals();
     }
@@ -372,12 +390,16 @@ export class Engine {
     this.realm.buildEnvironment(this.pmrem);
     if (!this.transitioning) this.applyLook(this.realm.look);
     this.updateGodRays();
+    if (this.contactAO) {
+      this.contactAO.scene = this.realm.scene;
+      this.contactAO.enabled = this.active === 'nexus' || this.active === 'village';
+    }
     this.composer.render();
     this.css.render(this.realm.scene, this.camera);
     this.onFrame?.(rdt);
     // honest FPS: frames actually presented per wall-clock second
     this.fps.frames++;
-    this.fps.acc += rdt;
+    this.fps.acc += wallDt;
     this.fps.frameMs = this.fps.frameMs * 0.9 + (performance.now() - t0) * 0.1;
     if (this.fps.acc >= 1) {
       this.fps.value = this.fps.frames / this.fps.acc;
@@ -404,13 +426,15 @@ export class Engine {
     if (!QUALITY.adaptive || this.transitioning) return;
     const f = this.fps.value, a = this.adapt;
     const max = Math.min(window.devicePixelRatio || 1, QUALITY.maxPixelRatio);
-    if (f < 45) { a.low++; a.high = 0; } else if (f > 58) { a.high++; a.low = 0; } else { a.low = a.high = 0; }
+    if (f < QUALITY.targetFps - 3) { a.low++; a.high = 0; } else if (f > QUALITY.targetFps + 10) { a.high++; a.low = 0; } else { a.low = a.high = 0; }
     let next = a.ratio;
-    if (a.low >= 2 && a.ratio > 0.6) next = Math.max(0.6, a.ratio - 0.15);
+    const min = Math.min(max, QUALITY.minPixelRatio);
+    if (a.low >= 3 && a.ratio > min) next = Math.max(min, a.ratio - 0.1);
     if (a.high >= 5 && a.ratio < max) next = Math.min(max, a.ratio + 0.1);
     if (next !== a.ratio) {
       a.ratio = next; a.low = a.high = 0;
       this.renderer.setPixelRatio(next);
+      this.composer.setPixelRatio(next);
       this.resize();
     }
   }

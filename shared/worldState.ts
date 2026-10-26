@@ -143,7 +143,7 @@ const PRETTY: Record<ObjectKind, string> = {
   orb: 'Orb', dragon: 'Dragon', monolith: 'Monolith', lantern: 'Lantern', statue: 'Statue', bridge: 'Bridge',
 };
 
-export function createWorld(name = 'My Universe', id = `world-${Date.now().toString(36)}`): WorldState {
+export function createWorld(name = 'My Universe', id = `world-${crypto.randomUUID()}`): WorldState {
   const now = Date.now();
   return {
     schema: 1,

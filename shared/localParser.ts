@@ -320,11 +320,11 @@ export function parseIntent(input: string, world: WorldState): ParseOutput {
       out.unsupported.push({ request: raw, reason: `Moons are not simulated as separate bodies yet, so ${moon[0].toUpperCase() + moon.slice(1)} can't be visited directly.`, suggestion: `Flying to ${parent[0].toUpperCase() + parent.slice(1)}, its parent planet, instead.` });
       continue;
     }
-    if ((realm === 'cosmos' || /simulation|orbit/.test(t)) && /(slow|speed|faster|pause|resume|unpause|play|time ?scale|trails?)/.test(t) && !/time stand|freeze/.test(t)) {
+    if ((realm === 'cosmos' || realm === 'heavy' || /simulation|orbit/.test(t)) && /(slow|speed|faster|pause|resume|unpause|play|time ?scale|trails?)/.test(t) && !/time stand|freeze/.test(t)) {
       const cur = world.cosmos.timeScale;
       if (/trail/.test(t)) push({ op: 'cosmos_set_sim', trails: !/(hide|remove|off|no)/.test(t) });
-      else if (/pause|stop/.test(t)) push({ op: 'cosmos_set_sim', paused: true });
-      else if (/(resume|unpause|play|continue)/.test(t)) push({ op: 'cosmos_set_sim', paused: false });
+      else if (/\b(resume|unpause|play|continue)\b/.test(t)) push({ op: 'cosmos_set_sim', paused: false });
+      else if (/\b(pause|stop)\b/.test(t)) push({ op: 'cosmos_set_sim', paused: true });
       else if (/slow/.test(t)) push({ op: 'cosmos_set_sim', time_scale: +Math.max(0.02, cur / multiplierFrom(t, 3)).toFixed(3), paused: false });
       else push({ op: 'cosmos_set_sim', time_scale: +Math.min(50, cur * multiplierFrom(t, 3)).toFixed(3), paused: false });
       continue;
@@ -336,7 +336,7 @@ export function parseIntent(input: string, world: WorldState): ParseOutput {
     }
 
     // ——— time ———
-    if (/(freeze|stop) time|time (stand|stop)|pause time/.test(t)) { push({ op: 'set_time', frozen: true }); continue; }
+    if (/\b(freeze|stop) time|time (stand|stop)|\bpause time/.test(t)) { push({ op: 'set_time', frozen: true }); continue; }
     if (/(unfreeze|resume|restart|start) time|time (flow|move|resume)/.test(t)) { push({ op: 'set_time', frozen: false }); continue; }
     if (/(slow|speed).*(time|everything|world)|time.*(slow|fast)/.test(t)) {
       push({ op: 'set_time', scale: /slow/.test(t) ? 0.3 : 3, frozen: false });

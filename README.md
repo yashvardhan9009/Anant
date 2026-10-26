@@ -28,6 +28,9 @@ Hand gestures (MediaPipe, optional) control grab, pinch-scale, rotate and drawin
 - **C** toggles fly mode.
 - **Z** / **X** shrink and grow you.
 - **Shift+drag** grabs a body.
+- **P** opens Cinema mode, hiding the interface and labels; **Esc** restores them.
+
+Choose **Cinematic**, **Balanced**, or **Performance** in the top bar. Cinematic is the default: AgX tone mapping, restrained bloom, contact shading, detailed shadows and higher-quality orbital/black-hole rendering. Balanced reduces rendering cost; Performance uses simpler foliage and effects. All three run the same physics. Changing quality saves the world before reloading. URL overrides are `?quality=cinematic`, `?quality=balanced` and `?quality=performance`; the older `?lowfx` still selects Performance.
 
 ## Honesty labels
 
@@ -46,13 +49,17 @@ When the AI cannot do something, it says so and does not pretend.
 
 ## Running it
 
+Use **Node.js 22.13 or newer** (the server uses built-in SQLite). These commands work in PowerShell and on macOS/Linux:
+
 ```bash
-npm install            # also copies the MediaPipe wasm and downloads the hand model
-cp .env.example .env   # optional: add NEBIUS_API_KEY
+npm ci                 # also copies the MediaPipe wasm and downloads the hand model
 npm run dev            # API on :8787, Vite on :5173
 # or
-npm run build && npm start   # production server on :8787
+npm run build
+npm start              # production server on :8787
 ```
+
+Optionally copy `.env.example` to `.env` and add `NEBIUS_API_KEY`. The offline parser works without an API key.
 
 | Variable | Purpose |
 |---|---|
@@ -64,7 +71,7 @@ npm run build && npm start   # production server on :8787
 Other scripts:
 - `npm test` runs the unit tests (Vitest).
 - `npm run typecheck` runs the TypeScript compiler.
-- `npm run e2e` drives every demo scene in headless Chromium and writes `test-results/e2e.json` plus screenshots.
+- Run `npx playwright install chromium` once, then `npm run e2e` to build and drive every demo scene in headless Chromium. It writes `test-results/e2e.json` plus screenshots, uses a separate temporary database, forces the offline parser, and shuts down its own server. The default test quality is Performance; set `E2E_QUALITY=cinematic` for visual review, or `E2E_SOFTWARE=1` to force SwiftShader. In PowerShell, set these with `$env:E2E_QUALITY='cinematic'` before running the command. The report records the actual GPU/backend.
 - `node scripts/fetch-assets.mjs` and `node scripts/build-astro.mjs` re-download and rebuild the art and astronomy data, which are already committed under `public/assets`.
 
 ## Architecture
@@ -93,23 +100,27 @@ voice / text / gesture
 
 ## Verification
 
-- 107 unit tests cover:
+- 120 unit tests cover:
   - command validation and the reducer;
   - physics (energy conservation, orbital elements, invertible display compression);
   - hydrogen normalisation;
   - the parser, director repair, story, gestures and persistence;
   - scale, the astronomy catalogue, manipulation with undo, and the multiverse.
+  - saved-world isolation, pending gesture undo, unpause/unfreeze, and moving-subject camera tracking.
 - `npm run e2e` walks the full demo, including the directive scenes, in Chromium:
   - microscopic water, the galaxy field and Andromeda;
   - holding, moving and undoing the Sun;
   - the multiverse portal;
   - a page reload that checks persistence.
+  - switching saved worlds, reloading the selected world, and Cinema keyboard controls.
+- GitHub Actions runs type checking, unit tests and production builds on Windows and Ubuntu with Node 22.
 
 ## Known limitations
 
 - **No live Nemotron run is recorded here.** The development container had no `NEBIUS_API_KEY`, so every verification ran on the offline parser. The Nebius endpoint was reachable. The Nemotron path (JSON extraction, one repair attempt, schema validation) is covered by unit tests with a mocked API.
-- **No GPU frame-rate measurement.** Rendering was verified in headless Chromium on SwiftShader (CPU), at about 2–30 fps depending on the scene. These numbers are not representative of a GPU, and no frame rate was measured on real GPU hardware. The renderer adapts its resolution, and `?lowfx` selects a lighter tier.
+- **Rendering cost varies by scene and GPU.** The cinematic revision was exercised in headless Chromium on Intel integrated graphics through Direct3D 11. The detailed village and galaxy scenes can run below 30 fps on that hardware; use Balanced or Performance when responsiveness matters more than visual detail. Cinematic keeps at least native pixel density. These measurements are not an RTX benchmark.
 - **Visual exaggeration.**
+  - Characters and buildings remain procedural geometry; the lighting/material upgrade does not replace them with scanned humans or film-production assets.
   - Solar-system distances are compressed (∝√r) and planets are drawn far too large.
   - Galaxy-field distances come from redshift (H₀ = 70), so peculiar velocities smear clusters.
   - Named galaxies are image impostors, not 3D models.

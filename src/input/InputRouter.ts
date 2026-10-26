@@ -109,10 +109,11 @@ export class InputRouter {
     this.down = undefined;
     if (!d) return;
     if (d.button === 2) {
-      const pts = this.stroke.map((p) => ({ x: p.x / innerWidth, y: p.y / innerHeight }));
-      const c = detectCircle(pts, 0.03);
+      // Measure circles in pixels: independently normalising X/Y turns a circle
+      // into an ellipse on widescreen displays.
+      const c = detectCircle(this.stroke, Math.min(innerWidth, innerHeight) * 0.03);
       this.stroke = [];
-      if (c) this.host.drawPortal(this.ndc(c.cx * innerWidth, c.cy * innerHeight), 'mouse');
+      if (c) this.host.drawPortal(this.ndc(c.cx, c.cy), 'mouse');
       return;
     }
     if (d.body) { this.host.releaseBody(); return; }

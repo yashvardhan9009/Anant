@@ -232,7 +232,7 @@ export function validateCommands(raw: unknown): { valid: Command[]; issues: Vali
   if (!Array.isArray(raw)) return { valid, issues: [{ index: -1, error: 'commands must be an array' }] };
   raw.slice(0, 12).forEach((item, index) => {
     const op = item && typeof item === 'object' ? (item as any).op : undefined;
-    if (!op || !(op in CommandSchemas)) {
+    if (typeof op !== 'string' || !Object.hasOwn(CommandSchemas, op)) {
       issues.push({ index, op, error: `unknown op "${String(op)}"` });
       return;
     }
@@ -270,9 +270,10 @@ export function semanticCheck(cmd: Command): string | null {
 /** Shape the Director (LLM or local) must return. */
 export const DirectorReplySchema = z.object({
   narration: z.string().max(1200).default(''),
-  commands: z.array(z.unknown()).default([]),
+  commands: z.array(z.unknown()).max(12).default([]),
   unsupported: z
     .array(z.object({ request: z.string().max(300), reason: z.string().max(400), suggestion: z.string().max(400).optional() }))
+    .max(12)
     .default([]),
 });
 export type DirectorReply = {

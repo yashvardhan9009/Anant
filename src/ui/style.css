@@ -1,10 +1,10 @@
 :root {
   --bg: #05040b;
-  --glass: rgba(14, 12, 28, 0.58);
-  --glass-strong: rgba(14, 12, 28, 0.82);
-  --line: rgba(173, 160, 255, 0.18);
-  --text: #e9e6ff;
-  --muted: #9a95c0;
+  --glass: rgba(9, 14, 21, 0.72);
+  --glass-strong: rgba(9, 14, 21, 0.92);
+  --line: rgba(205, 222, 239, 0.18);
+  --text: #eff3f7;
+  --muted: #a8b4c4;
   --cyan: #7df9ff;
   --violet: #b388ff;
   --gold: #ffd27d;
@@ -218,3 +218,52 @@ ul.clues li { margin-bottom: 4px; }
 .astro-img img { width: 100%; border-radius: 10px; display: block; }
 .astro-img figcaption { font-size: 10.5px; color: var(--muted); margin-top: 6px; line-height: 1.4; }
 .astro-img a { color: var(--cyan); }
+
+/* Quiet controls leave the scene as the focal point. */
+.topbar { top: 24px; left: 28px; right: 28px; gap: 24px; }
+.controls { max-width: 70%; gap: 6px; }
+.wordmark { color: #e8f3ff; background: none; letter-spacing: .65em; font-size: 12px; }
+.realm-title { font-size: clamp(20px, 2vw, 28px); font-weight: 300; }
+.pill { padding: 8px 10px; font-size: 10px; box-shadow: 0 3px 16px #0002; }
+.pill.on { border-color: #9ccad755; color: #c0e9ef; }
+.quality-select { color: #eed4ab; cursor: pointer; max-width: 126px; }
+.quality-select option { background: #0c1520; color: #eff3f7; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid #b6e3f0; outline-offset: 4px; }
+.fps { font-size: 9px; opacity: .65; }
+.card { top: 110px; right: 28px; background: var(--glass); border-radius: 10px; box-shadow: 0 16px 48px #0003; }
+.dock { bottom: 26px; }
+.bar-in { border-radius: 14px; background: rgba(8,14,22,.86); box-shadow: 0 12px 50px #0005; padding: 8px 8px 8px 20px; }
+.bar-in .go { background: #d3e5ee; color: #14232f; border-radius: 9px; font-weight: 600; }
+.hint { background: rgba(8,14,22,.7); opacity: 1; color: #c2d0dd; border-color: #adbec528; }
+.hint:hover { color: white; border-color: #d3e5ee88; }
+.res .op { display: none; }
+#hud > .dock, #hud > .topbar { pointer-events: none; }
+.entry { background: rgba(8,14,22,.82); }
+.cinema #hud, .cinema .css2d, .cinema .input-overlay, .cinema .tip { visibility: hidden; }
+.cinema-exit { position: fixed; z-index: 35; top: 20px; right: 24px; padding: 9px 14px; border: 1px solid #ffffff30; border-radius: 999px; background: #08111bb0; color: #e7edf5; cursor: pointer; font: 11px var(--mono); opacity: .45; transition: opacity .2s; }
+.cinema-exit:hover, .cinema-exit:focus-visible { opacity: 1; }
+.cinema-exit[hidden] { display: none; }
+@media (max-width: 1000px) {
+  .controls { max-width: 66%; }
+  .controls .pill .lbl { display: none; }
+  .controls .pill:first-child .lbl { display: inline; }
+  .card { top: 120px; }
+}
+@media (max-width: 600px) {
+  .topbar { top: 14px; left: 14px; right: 14px; flex-direction: column; gap: 12px; }
+  .controls { max-width: 100%; justify-content: flex-start; }
+  .brand { gap: 4px; }
+  .mode-badge, .observer-size { font-size: 9px; }
+  .controls .pill { font-size: 9px; padding: 6px 8px; }
+  .card { top: 190px; bottom: 150px; right: 14px; left: 14px; width: auto; max-height: none; }
+  .dock { bottom: 14px; width: calc(100vw - 28px); }
+  .bar-in { padding-left: 12px; gap: 4px; }
+  .bar-in input { font-size: 12px; }
+  .bar-in .go { font-size: 11px; padding: 10px; }
+  .hints { flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; }
+  .hint { flex: none; font-size: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+  .curtain h1, .curtain h2, .curtain .enter { animation: none; opacity: 1; }
+}

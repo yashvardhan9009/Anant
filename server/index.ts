@@ -20,7 +20,7 @@ try {
   }
 } catch {}
 
-const PORT = Number(process.env.PORT || 8787);
+const PORT = Number(process.env.PORT ?? 8787);
 const llm = new NebiusClient(configFromEnv());
 const store = new Store(process.env.ANANT_DB || 'data/anant.db');
 const DIST = join(process.cwd(), 'dist');
@@ -141,6 +141,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`[anant] server on http://localhost:${PORT}`);
+  const address = server.address();
+  console.log(`[anant] server on http://localhost:${typeof address === 'object' && address ? address.port : PORT}`);
   console.log(`[anant] AI: ${llm.enabled ? `Nebius Token Factory @ ${llm.cfg.baseUrl} (model: ${llm.cfg.model ?? 'auto-select Nemotron'})` : 'NO NEBIUS_API_KEY → offline parser / offline dialogue (clearly labelled in the UI)'}`);
 });
