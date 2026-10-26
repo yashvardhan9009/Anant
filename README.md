@@ -143,13 +143,14 @@ voice / text / gesture
 
 ## Verification
 
-- 120 unit tests cover:
+- 123 unit tests cover:
   - command validation and the reducer;
   - physics (energy conservation, orbital elements, invertible display compression);
   - hydrogen normalisation;
   - the parser, director repair, story, gestures and persistence;
   - scale, the astronomy catalogue, manipulation with undo, and the multiverse.
   - saved-world isolation, pending gesture undo, unpause/unfreeze, and moving-subject camera tracking.
+  - Earth tile boundaries, coordinate input and terrain height decoding.
 - `npm run e2e` walks the full demo, including the directive scenes, in Chromium:
   - microscopic water, the galaxy field and Andromeda;
   - holding, moving and undoing the Sun;
@@ -163,7 +164,7 @@ voice / text / gesture
 - **No live Nemotron run is recorded here.** The development container had no `NEBIUS_API_KEY`, so every verification ran on the offline parser. The Nebius endpoint was reachable. The Nemotron path (JSON extraction, one repair attempt, schema validation) is covered by unit tests with a mocked API.
 - **Rendering cost varies by scene and GPU.** The cinematic revision was exercised in headless Chromium on Intel integrated graphics through Direct3D 11. The detailed village and galaxy scenes can run below 30 fps on that hardware; use Balanced or Performance when responsiveness matters more than visual detail. Cinematic keeps at least native pixel density. These measurements are not an RTX benchmark.
 - **Visual exaggeration.**
-  - Characters and buildings remain procedural geometry; the lighting/material upgrade does not replace them with scanned humans or film-production assets.
+  - Characters use textured MakeHuman meshes and animation; buildings remain procedural geometry. These are rendered game assets, not scanned people or film-production assets.
   - Solar-system distances are compressed (∝√r) and planets are drawn far too large.
   - Galaxy-field distances come from redshift (H₀ = 70), so peculiar velocities smear clusters.
   - Named galaxies are image impostors, not 3D models.
@@ -178,7 +179,9 @@ voice / text / gesture
 - **2MASS Redshift Survey**, Huchra et al. 2012, ApJS 199, 26 (via VizieR J/ApJS/199/26).
 - **SIMBAD** astronomical database, CDS Strasbourg.
 - **MediaPipe Hand Landmarker** (Apache-2.0), Google.
-- Rendering uses Three.js (MIT); validation uses Zod (MIT).
+- **MakeHuman** (CC0 core assets) and CMU motion capture: character source notes are in `docs/character-assets.md` and `public/assets/characters/LICENSE.txt`.
+- **EOX Sentinel-2 cloudless 2016**, **USGS / USDA NAIP**, **Mapzen terrain** and **GeoNames**: Earth source and licence notices are in `public/assets/earth/CREDITS.md`; provider attribution remains visible in the viewer.
+- Rendering uses Three.js (MIT) and CesiumJS (Apache-2.0); validation uses Zod (MIT).
 
 ## License
 
