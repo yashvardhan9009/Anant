@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { stoneBricks, plaster, timber, roofTiles, rock, applyPBR, groundDetail } from './textures';
 import { QUALITY } from './quality';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 
 // ———————————————————————————————— wind ————————————————————————————————
 export const WIND = { uTime: { value: 0 }, uWind: { value: 1 } };
@@ -53,7 +54,7 @@ export const M = {
   roof: (tint: string) => mat('roof' + tint, () => applyPBR(new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1, side: THREE.DoubleSide }), roofTiles(tint), 1, 1.4)),
   rock: () => mat('rock', () => applyPBR(new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1 }), rock(), 1, 1.5)),
   iron: () => mat('iron', () => new THREE.MeshStandardMaterial({ color: '#2a2a2e', metalness: 0.85, roughness: 0.45 })),
-  glassWarm: () => mat('glassWarm', () => new THREE.MeshStandardMaterial({ color: '#2a1a0a', emissive: '#ffa648', emissiveIntensity: 2.2, roughness: 0.2, metalness: 0.1 })),
+  glassWarm: () => mat('glassWarm', () => new THREE.MeshStandardMaterial({ color: '#231c16', emissive: '#b47737', emissiveIntensity: .35, roughness: 0.18, metalness: 0.4 })),
   cobble: () => mat('cobble', () => applyPBR(new THREE.MeshStandardMaterial({ color: '#a59d92', roughness: 1 }), stoneBricks(), 6, 1.6)),
 };
 
@@ -103,7 +104,27 @@ export function halfTimberHouse(o: HouseOpts) {
     const W = o.w + jet * 2, D = o.d + jet * 2;
     topW = W; topD = D;
     const y0 = plinth + f * fh;
-    g.add(mesh(worldBox(W, fh, D, 0.45), M.plaster(), 0, y0 + fh / 2, 0));
+    const nWin = Math.max(1, Math.round(W / 2.2));
+    // Wall thickness and actual apertures create occlusion and a visible reveal.
+    for (const side of [-1, 1]) {
+      const shape = new THREE.Shape();
+      shape.moveTo(-W / 2, 0); shape.lineTo(W / 2, 0); shape.lineTo(W / 2, fh); shape.lineTo(-W / 2, fh); shape.closePath();
+      for (let i = 0; i < nWin; i++) {
+        const wx = -W / 2 + W * (i + .5) / nWin;
+        if (f === 0 && Math.abs(wx) < .7) continue;
+        const hole = new THREE.Path();
+        hole.moveTo(wx - .34, fh * .55 - .42); hole.lineTo(wx - .34, fh * .55 + .42);
+        hole.lineTo(wx + .34, fh * .55 + .42); hole.lineTo(wx + .34, fh * .55 - .42); hole.closePath(); shape.holes.push(hole);
+      }
+      const facade = new THREE.ExtrudeGeometry(shape, { depth: .24, bevelEnabled: true, bevelSize: .015, bevelThickness: .015, bevelSegments: 1, steps: 1 });
+      const uv = facade.attributes.uv as THREE.BufferAttribute;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * .45, uv.getY(i) * .45);
+      const face = mesh(facade, M.plaster(), 0, y0, side * (D / 2 - .24));
+      face.rotation.y = side > 0 ? 0 : Math.PI; g.add(face);
+      g.add(mesh(worldBox(.24, fh, D - .4, .45), M.plaster(), side * (W / 2 - .12), y0 + fh / 2, 0));
+    }
+    const interior = mesh(worldBox(W - .6, fh - .3, D - .65), mat('interior', () => new THREE.MeshStandardMaterial({ color: '#221c15', roughness: 1 })), 0, y0 + fh / 2, 0);
+    g.add(interior);
     // frame on each face
     for (const side of [-1, 1]) {
       // front/back faces (along x)
@@ -123,25 +144,36 @@ export function halfTimberHouse(o: HouseOpts) {
       for (let i = 0; i <= sz; i++) beam(T * 0.6, fh, T, x, y0 + fh / 2, -D / 2 + (D * i) / sz);
     }
     // windows (front & back), warm glass with frame + mullions
-    const nWin = Math.max(1, Math.round(W / 2.2));
     for (let i = 0; i < nWin; i++) {
       const wx = -W / 2 + (W * (i + 0.5)) / nWin;
       if (f === 0 && Math.abs(wx) < 0.7) continue; // door goes here
       for (const side of [-1, 1]) {
         const z = side * (D / 2 + 0.03);
-        const win = mesh(new THREE.PlaneGeometry(0.62, 0.78), M.glassWarm(), wx, y0 + fh * 0.55, z, false);
+        const win = mesh(new THREE.PlaneGeometry(0.62, 0.78), M.glassWarm(), wx, y0 + fh * 0.55, z - side * .18, false);
         win.rotation.y = side > 0 ? 0 : Math.PI;
         g.add(win);
         beam(0.78, 0.09, 0.1, wx, y0 + fh * 0.55 + 0.42, z);
         beam(0.78, 0.09, 0.1, wx, y0 + fh * 0.55 - 0.42, z);
         beam(0.06, 0.78, 0.08, wx, y0 + fh * 0.55, z);
         beam(0.62, 0.05, 0.08, wx, y0 + fh * 0.55, z);
+        beam(.08, .88, .18, wx - .36, y0 + fh * .55, z);
+        beam(.08, .88, .18, wx + .36, y0 + fh * .55, z);
+        beam(.92, .10, .32, wx, y0 + fh * .55 - .46, z);
+        // Open wooden shutters, with iron straps and individual boards.
+        for (const sx of [-1, 1]) {
+          for (let b = 0; b < 3; b++) beam(.105, .86, .055, wx + sx * (.48 + b * .11), y0 + fh * .55, z + side * .05);
+          for (const dy of [-.28, .28]) g.add(mesh(worldBox(.31, .045, .045), M.iron(), wx + sx * .59, y0 + fh * .55 + dy, z + side * .09));
+        }
       }
     }
   }
   // door
   const door = mesh(worldBox(0.95, 1.75, 0.08, 1), M.timber(), 0, plinth + 0.875, o.d / 2 + 0.05);
   g.add(door);
+  for (let i = 0; i < 6; i++) g.add(mesh(worldBox(.14, 1.72, .05, 1), M.timber(), -.385 + i * .154, plinth + .875, o.d / 2 + .11));
+  for (const y of [.38, 1.36]) g.add(mesh(worldBox(.88, .07, .045), M.iron(), 0, plinth + y, o.d / 2 + .15));
+  const handle = mesh(new THREE.TorusGeometry(.055, .012, 8, 16), M.iron(), .3, plinth + .9, o.d / 2 + .19); g.add(handle);
+  g.add(mesh(worldBox(1.55, .18, .8, .6), M.stone(), 0, .18, o.d / 2 + .25));
   beam(1.2, 0.16, 0.14, 0, plinth + 1.8, o.d / 2 + 0.06);
   g.add(mesh(mergeGeometries(beams), M.timber()));
 
@@ -159,6 +191,20 @@ export function halfTimberHouse(o: HouseOpts) {
     r.position.set(0, roofY + rise / 2, (side * (topD / 2 + over)) / 2);
     r.rotation.x = side * ang;
     g.add(r);
+    if (!QUALITY.low) {
+      const cols = Math.ceil((topW + over * 2) / .32), rows = Math.ceil(slope / .34);
+      const tile = new RoundedBoxGeometry(.34, .045, .44, 1, .018);
+      const clay = mat('physical-roof-' + o.roof, () => new THREE.MeshStandardMaterial({ color: o.roof ?? '#6a3b2c', roughness: .93 }));
+      const tiles = new THREE.InstancedMesh(tile, clay, cols * rows);
+      const dummy = new THREE.Object3D(), color = new THREE.Color();
+      for (let row = 0; row < rows; row++) for (let col = 0; col < cols; col++) {
+        const index = row * cols + col, noise = Math.sin(index * 17.83 + o.w * 7) * .5 + .5;
+        dummy.position.set((col + .5) * (topW + over * 2) / cols - (topW + over * 2) / 2, .10 + noise * .012, (row + .5) * slope / rows - slope / 2);
+        dummy.rotation.set(.07 * side, 0, (noise - .5) * .025); dummy.updateMatrix();
+        tiles.setMatrixAt(index, dummy.matrix); color.setRGB(.72 + noise * .38, .72 + noise * .38, .72 + noise * .38); tiles.setColorAt(index, color);
+      }
+      tiles.position.copy(r.position); tiles.rotation.copy(r.rotation); tiles.castShadow = tiles.receiveShadow = true; g.add(tiles);
+    }
   }
   const ridge = mesh(new THREE.CylinderGeometry(0.11, 0.11, topW + over * 2, 8), M.timber(), 0, roofY + rise + 0.05, 0);
   ridge.rotation.z = Math.PI / 2;
@@ -292,7 +338,7 @@ export function forest(spots: { x: number; y: number; z: number; s: number; rot:
 /** Instanced grass blades with wind; heights/colours vary per instance. */
 export function grassField(count: number, place: () => { x: number; y: number; z: number } | null) {
   const blade = new THREE.BufferGeometry();
-  const pos = [-0.035, 0, 0, 0.035, 0, 0, -0.025, 0.45, 0.01, 0.025, 0.45, 0.01, 0, 1, 0.04];
+  const pos = [-0.012, 0, 0, 0.012, 0, 0, -0.009, 0.45, 0.04, 0.009, 0.45, 0.04, 0, 1, 0.15];
   blade.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   blade.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0.3, 0, 1, 0.3, 0, 1, 0.3, 0, 1, 0.3, 0, 1, 0.3], 3));
   blade.setAttribute('color', new THREE.Float32BufferAttribute([0.08, 0.13, 0.05, 0.08, 0.13, 0.05, 0.2, 0.3, 0.1, 0.2, 0.3, 0.1, 0.45, 0.5, 0.22], 3));
@@ -304,7 +350,7 @@ export function grassField(count: number, place: () => { x: number; y: number; z
   for (let tries = 0; n < count && tries < count * 4; tries++) {
     const p = place();
     if (!p) continue;
-    const s = 0.22 + Math.random() * 0.38;
+    const s = 0.12 + Math.random() * 0.22;
     m4.compose(new THREE.Vector3(p.x, p.y, p.z), q.setFromEuler(new THREE.Euler((Math.random() - 0.5) * 0.3, Math.random() * Math.PI, (Math.random() - 0.5) * 0.3)), new THREE.Vector3(0.6 + Math.random() * 0.6, s, 1));
     im.setMatrixAt(n, m4);
     im.setColorAt(n, c.setHSL(0.22 + Math.random() * 0.06, 0.5, 0.75 + Math.random() * 0.4));

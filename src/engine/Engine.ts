@@ -366,9 +366,12 @@ export class Engine {
     }
   }
 
+  suspended = false;
+
   frame() {
     const t0 = performance.now();
     const wallDt = this.clock.getDelta();
+    if (this.suspended) return;
     const rdt = Math.min(0.05, wallDt);
     const st = this.state;
     const frozen = st?.time.frozen ?? false;

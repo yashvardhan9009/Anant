@@ -46,6 +46,8 @@ export class HUD {
   handPill: HTMLButtonElement;
   soundPill: HTMLButtonElement;
   worldsPill: HTMLButtonElement;
+  earthPill: HTMLButtonElement;
+  onEarth?: () => void;
   qualitySelect: HTMLSelectElement;
   private cinemaPill: HTMLButtonElement;
   private cinemaExit: HTMLButtonElement;
@@ -115,7 +117,9 @@ export class HUD {
     this.cinemaExit.hidden = true;
     this.cinemaExit.onclick = () => this.toggleCinema(false);
     document.body.append(this.cinemaExit);
-    ctr.append(this.aiPill, this.qualitySelect, this.cinemaPill, this.handPill, this.soundPill, this.worldsPill, this.cardPill, helpPill, this.fpsEl);
+    this.earthPill = h('button', 'pill', 'Explore Earth');
+    this.earthPill.onclick = () => this.onEarth?.();
+    ctr.append(this.earthPill, this.aiPill, this.qualitySelect, this.cinemaPill, this.handPill, this.soundPill, this.worldsPill, this.cardPill, helpPill, this.fpsEl);
     top.append(brand, ctr);
 
     this.banner = h('div', 'banner');

@@ -19,6 +19,44 @@ class AssetLibrary {
   private models = new Map<string, Promise<GLTF | null>>();
   private sets = new Map<string, { map: THREE.Texture; normalMap: THREE.Texture; arm: THREE.Texture } | null>();
   private ready?: Promise<void>;
+  private treeCards = new Map<string, THREE.Texture>();
+
+  /** Distant foliage uses a photographed projection of the detailed asset, not
+   * geometric cones. Generated once, then shared by inexpensive crossed cards. */
+  async impostors(id: string, transforms: THREE.Matrix4[]) {
+    const source = await this.model(id);
+    if (!source || !transforms.length) return null;
+    const bounds = new THREE.Box3().setFromObject(source.scene);
+    const size = bounds.getSize(new THREE.Vector3()), center = bounds.getCenter(new THREE.Vector3());
+    const width = Math.max(size.x, size.z) * 1.08, height = size.y * 1.05;
+    let texture = this.treeCards.get(id);
+    if (!texture) {
+      const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
+      renderer.setSize(768, 1024); renderer.setClearColor(0, 0);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      const scene = new THREE.Scene(), model = source.scene.clone(true);
+      scene.add(model, new THREE.HemisphereLight('#dce7f1', '#655e47', 2));
+      const sun = new THREE.DirectionalLight('#fff1dd', 2); sun.position.set(20, 35, 30); scene.add(sun);
+      const camera = new THREE.OrthographicCamera(-width / 2, width / 2, height / 2, -height / 2, .1, height * 10);
+      camera.position.copy(center).add(new THREE.Vector3(0, 0, height * 3)); camera.lookAt(center);
+      renderer.render(scene, camera);
+      const canvas = document.createElement('canvas'); canvas.width = 768; canvas.height = 1024;
+      canvas.getContext('2d')!.drawImage(renderer.domElement, 0, 0);
+      texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = 8; this.treeCards.set(id, texture);
+      renderer.dispose(); renderer.forceContextLoss();
+    }
+    const material = new THREE.MeshStandardMaterial({ map: texture, alphaTest: .06, alphaToCoverage: true, side: THREE.DoubleSide, roughness: 1 });
+    const group = new THREE.Group(), matrix = new THREE.Matrix4(), rotation = new THREE.Matrix4();
+    for (let side = 0; side < 3; side++) {
+      const geometry = new THREE.PlaneGeometry(width, height).translate(center.x, center.y, center.z);
+      const mesh = new THREE.InstancedMesh(geometry, material, transforms.length);
+      rotation.makeRotationY(side * Math.PI / 3);
+      transforms.forEach((t, i) => mesh.setMatrixAt(i, matrix.multiplyMatrices(t, rotation)));
+      mesh.receiveShadow = true; mesh.computeBoundingSphere(); group.add(mesh);
+    }
+    return group;
+  }
 
   init() {
     this.ready ??= fetch(`${BASE}/manifest.json`).then((r) => (r.ok ? r.json() : this.manifest)).then((m) => { this.manifest = m; }).catch(() => {});

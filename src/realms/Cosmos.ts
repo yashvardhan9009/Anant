@@ -505,7 +505,7 @@ export class Cosmos extends Realm {
       if (v.light && this.sunWorld) this.sunWorld.copy(p);
       const mat = v.mesh.material as any;
       if (mat.uniforms?.uTime) mat.uniforms.uTime.value = ctx.t;
-      v.trail.visible = this.trails;
+      v.trail.visible = this.trails && !document.body.classList.contains('cinema');
       if (this.trails && !ctx.frozen && !this.paused) {
         // ring-buffer shift (cheap at this size)
         const last = v.trailN > 0 ? new THREE.Vector3(v.trailPos[0], v.trailPos[1], v.trailPos[2]) : null;

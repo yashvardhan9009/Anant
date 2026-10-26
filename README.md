@@ -20,6 +20,7 @@ Built for the Nebius × NVIDIA hackathon.
 | “Make me large enough to hold the Sun” → “switch to sandbox mode” → “let me grab the Sun” → “undo” | Your apparent size is separate from your mass. In sandbox mode you carry the Sun with the pointer or your hand, and its planets come with it. Undo, redo and reset work on every manipulation. |
 | “Show me thousands of galaxies” · “Take me to Andromeda” · “Show me galaxies observed by James Webb” | 43,498 real galaxies from the 2MASS Redshift Survey and a 24-object catalogue with SIMBAD coordinates and ESA/Hubble and ESA/Webb imagery. |
 | “Show me a black hole” | Schwarzschild null geodesics integrated per pixel, lensing the real Milky Way panorama. |
+| “Explore Earth” or **Explore Earth** in the top bar | Fly from orbit into streamed satellite/aerial imagery over measured elevation. Search 34,188 cities or enter latitude, longitude; visit the Himalayas, Grand Canyon, New York, Mumbai and the Alps. |
 | “Open a portal to a universe with stronger gravity” | A **hypothetical** universe where G is 4× ours. The same solar system is recomputed under that law, and every card labels it HYPOTHETICAL. |
 | “Open a portal to a fantasy kingdom” → talk to the villagers | Emberfall, a living story village. Its NPCs remember you, and its mystery can be solved. |
 
@@ -31,6 +32,48 @@ Hand gestures (MediaPipe, optional) control grab, pinch-scale, rotate and drawin
 - **P** opens Cinema mode, hiding the interface and labels; **Esc** restores them.
 
 Choose **Cinematic**, **Balanced**, or **Performance** in the top bar. Cinematic is the default: AgX tone mapping, restrained bloom, contact shading, detailed shadows and higher-quality orbital/black-hole rendering. Balanced reduces rendering cost; Performance uses simpler foliage and effects. All three run the same physics. Changing quality saves the world before reloading. URL overrides are `?quality=cinematic`, `?quality=balanced` and `?quality=performance`; the older `?lowfx` still selects Performance.
+
+## Detailed Earth and scene assets
+
+**Earth** opens a dedicated Cesium geospatial view. Drag to pan, scroll to zoom,
+Ctrl+drag to tilt, and use **Orbit** for a slow camera move. **Cinema** hides the
+controls while keeping data credits visible. **Esc** returns to the same ANANT
+world; its renderer and input are suspended during Earth exploration.
+
+The default uses public data without API keys: EOX Sentinel-2 cloudless 2016
+(approximately 10 m globally), USGS/USDA aerial imagery (approximately 1 m where
+available in the continental US), and Mapzen elevation. Detail and acquisition
+dates vary. These are photographs over terrain, **not reconstructed 3D cities**.
+A packaged orbital texture stays visible if tile services are slow. Internet is
+required for streamed detail. City search uses a bundled GeoNames index and
+does not send typed searches to an external geocoder.
+
+EOX imagery passes through a fixed-source server route with tile-coordinate
+validation, a 16 MB memory cache, request limits and timeouts. Elevation and USGS
+imagery stream directly to the browser. The Cesium viewer is loaded only when
+Earth is opened; its workers are copied by `postinstall`, `dev`, and `build`.
+
+For actual **Google Photorealistic 3D Tiles**, optionally set
+`GOOGLE_MAPS_BROWSER_KEY` in `.env` after enabling Map Tiles API in your own Google
+Maps project. Restrict that key to your site's HTTP referrers and the Map Tiles
+API; it is intentionally browser-visible. Leave it empty for public data. Google
+mode offers bookmarks and coordinates, disables the non-Google city index, and
+preserves Google's credits. Google mode requires provider access and has not
+been live-verified without a configured key.
+
+Emberfall now uses textured, rigged MakeHuman characters with idle and walking
+animations, recessed windows, timber shutters, layered roof tiles and retained
+foliage detail. Far trees use projections of the scanned assets to limit geometry
+cost. The Nexus adds bevelled stone paving, metal housings and HDR environment
+lighting. Cinema mode hides scientific orbit guides in the solar system.
+These remain real-time rendered scenes, with quality limited by the assets and
+the device; they are not indistinguishable from live footage.
+
+Asset notices: [Earth data](public/assets/earth/CREDITS.md),
+[characters](public/assets/characters/LICENSE.txt),
+[Poly Haven and planetary maps](public/assets/CREDITS.json).
+Character rebuild instructions: [character assets](docs/character-assets.md).
+To verify live Earth providers after building: `node scripts/e2e-earth.mjs`.
 
 ## Honesty labels
 

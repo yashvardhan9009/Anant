@@ -7,6 +7,7 @@ import { obsidian, darkMetal, applyPBR } from '../engine/textures';
 import { QUALITY } from '../engine/quality';
 import type { WorldState, Env } from '../../shared/worldState';
 import type { RealmId } from '../../shared/commands';
+import { assets } from '../engine/assets';
 
 /** The Nexus: a monumental threshold floating in deep space. "Anant" means infinite — hence the ∞ of light. */
 export class Nexus extends Realm {
@@ -28,7 +29,7 @@ export class Nexus extends Realm {
   arrivalPitch = 0.16;
 
   protected build() {
-    this.look = { exposure: 1.0, bloom: [0.28, 0.45, 1.15], contrast: 1.08, saturation: 0.92, shadows: '#0b1220', highlights: '#f1e8dc', vignette: 0.32, godRays: 0.08 };
+    this.look = { exposure: 1.0, bloom: [0.16, 0.35, 1.5], contrast: 1.12, saturation: 0.9, shadows: '#0b1220', highlights: '#f1e8dc', vignette: 0.22, godRays: 0 };
     this.scene.fog = new THREE.FogExp2('#07061a', 0.006);
     const u = this.sky.uniforms;
     u.uTop.value.set('#010106'); u.uHorizon.value.set('#0c0a22'); u.uBottom.value.set('#010104');
@@ -64,6 +65,27 @@ export class Nexus extends Realm {
     slab.rotation.x = -Math.PI / 2;
     slab.receiveShadow = true;
     this.scene.add(slab);
+    // Bevelled basalt paving: real thickness, joins and reflected edge highlights.
+    const hex = new THREE.Shape();
+    for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; if (!i) hex.moveTo(Math.cos(a), Math.sin(a)); else hex.lineTo(Math.cos(a), Math.sin(a)); }
+    hex.closePath();
+    const pavingGeometry = new THREE.ExtrudeGeometry(hex, { depth: .13, bevelEnabled: true, bevelThickness: .025, bevelSize: .025, bevelSegments: 2, steps: 1 });
+    pavingGeometry.rotateX(-Math.PI / 2);
+    const pavingMaterial = new THREE.MeshStandardMaterial({ color: '#303238', roughness: .44, metalness: .15 });
+    const positions: [number, number][] = [];
+    for (let x = -12; x <= 12; x++) for (let z = -12; z <= 12; z++) {
+      const px = x * 1.54, pz = (z + (Math.abs(x) % 2) * .5) * 1.78;
+      if (Math.hypot(px, pz) < 17.2) positions.push([px, pz]);
+    }
+    const paving = new THREE.InstancedMesh(pavingGeometry, pavingMaterial, positions.length), transform = new THREE.Matrix4();
+    positions.forEach(([x, z], i) => { transform.makeTranslation(x, -.14, z); paving.setMatrixAt(i, transform); });
+    paving.receiveShadow = paving.castShadow = true; this.scene.add(paving);
+    void assets.init().then(async () => {
+      assets.applyTo(pavingMaterial, 'mossy_rock', 1, .12);
+      this.metal.color.set('#827b70'); this.metal.metalness = .8; this.metal.roughness = .45;
+      const environment = await assets.hdri('moonless_golf');
+      if (environment) { this.envTexture = environment.texture; this.envDirty = true; }
+    });
     this.floorMat = new THREE.ShaderMaterial({
       uniforms: { uTime: { value: 0 } },
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
@@ -76,7 +98,7 @@ export class Nexus extends Realm {
           float spokes = smoothstep(0.497, 0.5, abs(fract(a*16.0/6.2831) - 0.5)) * smoothstep(5.0, 7.0, r) * smoothstep(18.0, 12.0, r);
           float inner = smoothstep(0.08, 0.0, abs(r - 3.0)) + smoothstep(0.05, 0.0, abs(r - 17.6))*1.5;
           vec3 col = vec3(0.45,0.35,1.0)*rings*(0.25 + pulse) + vec3(0.3,0.85,1.0)*(spokes*0.12 + inner*0.9);
-          gl_FragColor = vec4(col, 1.0); }`,
+          gl_FragColor = vec4(col * .25, 1.0); }`,
     });
     const lines = new THREE.Mesh(new THREE.CircleGeometry(18.3, 128), this.floorMat);
     lines.rotation.x = -Math.PI / 2;
@@ -115,7 +137,9 @@ export class Nexus extends Realm {
       new THREE.TubeGeometry(this.curve, 480, 0.2, 24, true),
       new THREE.MeshPhysicalMaterial({ color: '#c8d8ff', metalness: 0, roughness: 0.04, transparent: true, opacity: 0.22, clearcoat: 1, envMapIntensity: 2.5, side: THREE.DoubleSide, depthWrite: false }),
     );
-    this.infinity.add(core, glass);
+    const housing = new THREE.Mesh(new THREE.TubeGeometry(this.curve, 480, .14, 16, true), this.metal);
+    housing.position.z = -.13; housing.castShadow = housing.receiveShadow = true;
+    this.infinity.add(core, glass, housing);
     const N = 1600;
     const sg = new THREE.BufferGeometry();
     sg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3));

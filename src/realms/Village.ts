@@ -7,11 +7,13 @@ import { halfTimberHouse, worldBox, M, barrel, crate, grassField, forest, rocks,
 import { softSprite, cloth, applyPBR } from '../engine/textures';
 import { QUALITY } from '../engine/quality';
 import { assets, place } from '../engine/assets';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import type { WorldState, Env } from '../../shared/worldState';
 import { NPCS, NpcDef, FACTS, StoryState } from '../../shared/story';
 
 /** radius inside which trees use scanned models */
-const NEAR_TREES = QUALITY.low ? 38 : 50;
+const NEAR_TREES = QUALITY.low ? 28 : 34;
 
 const WAYPOINTS: Record<string, [number, number]> = {
   gate: [3, 19], square: [2.5, 2], watchtower: [-16, -15], inn: [10, 1], forge: [-9, -3], garden: [13.5, 10], well: [-11, 9.5],
@@ -49,6 +51,10 @@ interface NpcView {
   walking: boolean;
   phase: number;
   approachPlayer: boolean;
+  mixer?: THREE.AnimationMixer;
+  idle?: THREE.AnimationAction;
+  walk?: THREE.AnimationAction;
+  wasWalking?: boolean;
 }
 
 export class Village extends Realm {
@@ -439,7 +445,7 @@ export class Village extends Realm {
     // Preserve photographed lighting and materials, but use lightweight foliage.
     if (QUALITY.low) { this.assetReport = rep; return; }
     const foliage = (mode: 'tree' | 'plant') => (m: THREE.MeshStandardMaterial) => {
-      if (m.alphaTest > 0 || m.transparent) { m.side = THREE.DoubleSide; m.alphaTest = Math.max(m.alphaTest, 0.45); m.transparent = false; }
+      if (m.alphaTest > 0 || m.transparent) { m.side = THREE.DoubleSide; m.alphaTest = .25; m.alphaToCoverage = true; m.transparent = false; }
       addWind(m, mode);
     };
     // 3 — real trees replace the procedural forest
@@ -459,12 +465,15 @@ export class Village extends Realm {
           const tf = mine.map((s) => place(s.x, s.y, s.z, s.rot, (targetH * s.s * (0.8 + ((s.x * 13) % 1 + 1) % 1 * 0.4)) / size.y));
           const inst = await assets.instanced(id, tf, { patch: foliage('tree') });
           if (inst) { g.add(inst); rep.push(`${mine.length}× ${id}`); }
+          const far = this.treeSpots.filter(s => s.kind === kind && Math.hypot(s.x, s.z) >= NEAR_TREES).filter((_, i) => i % list.length === k);
+          const cards = await assets.impostors(id, far.map(s => place(s.x, s.y, s.z, s.rot, targetH * s.s / size.y)));
+          if (cards) g.add(cards);
         }
       }
       if (g.children.length) {
         if (this.forestGroup) this.scene.remove(this.forestGroup);
-        this.forestGroup = forest(this.treeSpots.filter((s) => Math.hypot(s.x, s.z) >= NEAR_TREES));
-        this.scene.add(g, this.forestGroup);
+        this.forestGroup = g;
+        this.scene.add(g);
       }
     }
 
@@ -723,7 +732,35 @@ export class Village extends Realm {
     root.position.set(wp[0], this.groundY(wp[0], wp[1]), wp[1]);
     this.scene.add(root);
     this.npcs.set(def.id, { def, root, body, label, target: root.position.clone(), armL, armR, legs, ring, walking: false, phase: Math.random() * 6, approachPlayer: false });
+    // Authored MakeHuman characters have real facial topology, textured skin,
+    // fitted garments and articulated hands. Keep the fallback until fully loaded.
+    const view = this.npcs.get(def.id)!;
+    const ready = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`/assets/characters/${def.id}.glb`).then(gltf => {
+      gltf.scene.traverse(o => {
+        o.userData.npcId = def.id;
+        if (!(o as THREE.Mesh).isMesh) return;
+        const mesh = o as THREE.Mesh;
+        mesh.castShadow = mesh.receiveShadow = true;
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const material of materials as THREE.MeshStandardMaterial[]) {
+          if (material.map) material.map.anisotropy = 8;
+          if (material.alphaTest > 0) { material.side = THREE.DoubleSide; material.depthWrite = true; }
+          material.envMapIntensity = .7;
+        }
+      });
+      body.visible = false;
+      root.add(gltf.scene);
+      view.mixer = new THREE.AnimationMixer(gltf.scene);
+      const idle = gltf.animations.find(c => c.name === 'Idle');
+      const walk = gltf.animations.find(c => c.name === 'Walk');
+      if (idle) view.idle = view.mixer.clipAction(idle).play();
+      if (walk) view.walk = view.mixer.clipAction(walk);
+      view.mixer.update(0);
+    }).catch(() => { /* Keep the usable fallback when a download fails. */ });
+    this.characterLoads.push(ready);
   }
+
+  characterLoads: Promise<void>[] = [];
 
   groundY(x: number, z: number) {
     return terrainHeight(x, z);
@@ -859,6 +896,15 @@ export class Village extends Realm {
         goal = new THREE.Vector3(wp[0] + wob, 0, wp[1] + Math.cos(t * 0.11 + v.phase) * 1.6);
       }
       const p = v.root.position;
+      // Keep routines and idle wandering outside house footprints; otherwise
+      // villagers (and their conversation camera) can end up inside a wall.
+      const keepOutsideBuildings = (position: THREE.Vector3) => {
+        for (let pass = 0; pass < 2; pass++) for (const house of this.footprints) {
+          const dx = position.x - house.x, dz = position.z - house.z, d = Math.hypot(dx, dz), radius = house.r + .4;
+          if (d < radius) { position.x = house.x + (d ? dx / d : 1) * radius; position.z = house.z + (d ? dz / d : 0) * radius; }
+        }
+      };
+      keepOutsideBuildings(goal);
       const dx = goal.x - p.x, dz = goal.z - p.z;
       const dist = Math.hypot(dx, dz);
       v.walking = !talking && dist > (v.approachPlayer ? 0.1 : 0.6);
@@ -866,11 +912,22 @@ export class Village extends Realm {
         const sp = Math.min(dist, (v.approachPlayer ? 2.2 : 1.3) * ctx.dt);
         p.x += (dx / dist) * sp;
         p.z += (dz / dist) * sp;
+        keepOutsideBuildings(p);
         v.root.rotation.y = lerpAngle(v.root.rotation.y, Math.atan2(dx, dz), Math.min(1, ctx.dt * 6));
       } else if (talking || v.approachPlayer) {
         v.root.rotation.y = lerpAngle(v.root.rotation.y, Math.atan2(cam.x - p.x, cam.z - p.z), Math.min(1, ctx.dt * 5));
       }
       p.y = this.groundY(p.x, p.z);
+      if (v.mixer) {
+        if (v.wasWalking !== v.walking) {
+          const next = v.walking ? v.walk : v.idle, previous = v.walking ? v.idle : v.walk;
+          previous?.fadeOut(.25); next?.reset().fadeIn(.25).play();
+          v.wasWalking = v.walking;
+        }
+        if (v.walk) v.walk.timeScale = v.approachPlayer ? 1.6 : 1;
+        v.mixer.update(ctx.dt);
+        continue;
+      }
       const sw = v.walking ? Math.sin(t * 7 + v.phase) : Math.sin(t * 1.5 + v.phase) * 0.08;
       v.armL.rotation.x = sw * 0.6;
       v.armR.rotation.x = -sw * 0.6;

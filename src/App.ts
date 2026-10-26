@@ -51,6 +51,8 @@ export class App implements InputHost {
   private redoStack: { state: WorldState; label: string }[] = [];
   private bodyGrab?: { id: string; planeY: number };
   private worldGeneration = 0;
+  private earth?: import('./earth/EarthExplorer').EarthExplorer;
+  private openingEarth = false;
 
   constructor() {
     this.engine = new Engine(document.getElementById('stage')!);
@@ -60,6 +62,7 @@ export class App implements InputHost {
     this.hands.onEvents = (ev, hands) => this.input.handleGestures(ev, hands);
 
     this.hud.onSubmit = (t) => this.intention(t);
+    this.hud.onEarth = () => void this.openEarth();
     this.hud.onSay = (t) => this.say(t);
     this.hud.onCloseDialogue = () => this.closeDialogue();
     this.hud.onAccuse = () => this.accuseCurrent();
@@ -163,6 +166,7 @@ export class App implements InputHost {
     }
     this.loadWorld(loaded ?? createWorld('My Universe'), !!loaded);
     this.engine.start();
+    if (new URLSearchParams(location.search).has('earth')) void this.openEarth();
   }
 
   loadWorld(w: WorldState, resumed = false) {
@@ -415,10 +419,42 @@ export class App implements InputHost {
   /** UI-only requests that are not world operations. */
   private meta(t: string): boolean {
     const s = t.toLowerCase();
+    if (/^(explore earth|land on earth|open earth|google earth|earth explorer|show earth detail)/.test(s)) { void this.openEarth(); return true; }
     if (/^(help|\?|what can (i|you) do)/.test(s)) { this.hud.toggleHelp(true); return true; }
     if (/(the end|finale|end (the )?demo|experience the impossible)/.test(s)) { this.finale(); return true; }
     if (/^(enable|turn on|start) (hand|gesture)/.test(s)) { this.toggleHands(true); return true; }
     return false;
+  }
+
+  async openEarth() {
+    if (this.earth || this.openingEarth) return;
+    this.openingEarth = true;
+    this.hud.earthPill.disabled = true;
+    try {
+      const { EarthExplorer } = await import('./earth/EarthExplorer');
+      this.engine.suspended = true;
+      this.engine.rig.keys.clear();
+      this.hud.toggleCinema(false);
+      this.hud.root.inert = true;
+      this.hud.root.setAttribute('aria-hidden', 'true');
+      const stage = document.getElementById('stage')!;
+      stage.inert = true;
+      stage.setAttribute('aria-hidden', 'true');
+      const restore = () => {
+        this.earth?.dispose(); this.earth = undefined;
+        this.engine.suspended = false; this.engine.rig.keys.clear();
+        this.hud.root.inert = false; stage.inert = false;
+        this.hud.root.removeAttribute('aria-hidden'); stage.removeAttribute('aria-hidden');
+        this.hud.earthPill.focus();
+      };
+      this.earth = new EarthExplorer(restore);
+      try { await this.earth.start(); } catch (e) { restore(); throw e; }
+    } catch {
+      this.hud.system('Earth could not start. Please reload and try again.', 'fail');
+    } finally {
+      this.openingEarth = false;
+      this.hud.earthPill.disabled = false;
+    }
   }
 
   // ———————————————————————————————— story ————————————————————————————————

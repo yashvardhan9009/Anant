@@ -10,6 +10,7 @@ import { direct } from './director.js';
 import { npcReply } from './npc.js';
 import { Store } from './db.js';
 import { NPC_BY_ID } from '../shared/story.js';
+import { earthImagery } from './earth.js';
 
 // Minimal .env loader (no dependency): KEY=VALUE lines, existing env wins.
 try {
@@ -77,6 +78,17 @@ const server = createServer(async (req, res) => {
   try {
     if (!path.startsWith('/api/')) return serveStatic(req, res);
 
+    if (path === '/api/earth/config' && req.method === 'GET') {
+      // This must be a browser/referrer-restricted Maps key, never a server secret.
+      return send(res, 200, { googleMapsKey: process.env.GOOGLE_MAPS_BROWSER_KEY || null });
+    }
+    const earthTile = path.match(/^\/api\/earth\/imagery\/(\d+)\/(\d+)\/(\d+)\.jpg$/);
+    if (earthTile && req.method === 'GET') {
+      const image = await earthImagery(Number(earthTile[1]), Number(earthTile[2]), Number(earthTile[3]));
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' });
+      res.end(image); return;
+    }
+
     if (path === '/api/health' && req.method === 'GET') {
       let model: string | undefined;
       if (llm.enabled) model = await llm.resolveModel().catch(() => undefined);
@@ -135,6 +147,7 @@ const server = createServer(async (req, res) => {
     }
     return send(res, 404, { error: 'unknown endpoint' });
   } catch (e: any) {
+    if (path.startsWith('/api/earth/imagery/')) return send(res, e.status ?? 502, { error: 'Earth imagery temporarily unavailable' });
     console.error('[anant]', e);
     return send(res, e.status ?? 500, { error: e.message ?? 'internal error' });
   }

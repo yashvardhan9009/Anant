@@ -13,7 +13,7 @@ import { startTestServer } from './test-server.mjs';
 
 // Use local executables on every OS; no globally installed npx is required.
 if (!process.env.E2E_SKIP_BUILD) {
-  for (const script of ['scripts/copy-wasm.mjs', 'node_modules/vite/bin/vite.js']) {
+  for (const script of ['scripts/copy-wasm.mjs', 'scripts/copy-cesium.mjs', 'node_modules/vite/bin/vite.js']) {
     const result = spawnSync(process.execPath, [script, ...(script.includes('vite') ? ['build'] : [])], { stdio: 'inherit', windowsHide: true });
     if (result.error || result.status !== 0) throw result.error ?? new Error('Production build failed');
   }

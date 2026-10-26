@@ -21,10 +21,10 @@ const want = (id) => !ONLY || ONLY.includes(id);
 /** Models: id → simplification ratio (fraction of triangles kept) and texture size. */
 export const MODELS = {
   // trees (film-quality scans → heavily simplified for real time)
-  fir_tree_01: { ratio: 0.004, tex: 1024, error: 0.04 },
-  pine_tree_01: { ratio: 0.0018, tex: 1024, error: 0.04 },
-  island_tree_02: { ratio: 0.03, tex: 1024, error: 0.04 },
-  tree_small_02: { ratio: 0.015, tex: 1024, error: 0.04 },
+  fir_tree_01: { ratio: 0.012, tex: 1024, error: 0.003 },
+  pine_tree_01: { ratio: 0.006, tex: 1024, error: 0.003 },
+  island_tree_02: { ratio: 0.07, tex: 1024, error: 0.003 },
+  tree_small_02: { ratio: 0.05, tex: 1024, error: 0.003 },
   dead_tree_trunk: { ratio: 0.08, tex: 1024, error: 0.04 },
   // ground cover & rocks
   shrub_01: { ratio: 0.05, tex: 1024, error: 0.04 },
@@ -87,9 +87,9 @@ for (const [id, opt] of Object.entries(MODELS)) {
       for (const [rel, f] of Object.entries(g.include ?? {})) curl(f.url, join(dir, rel));
     }
     mkdirSync(dirname(out), { recursive: true });
-    const args = ['gltf-transform', 'optimize', main, out, '--compress', 'meshopt', '--texture-compress', 'webp', '--texture-size', String(opt.tex), '--simplify', opt.ratio < 1 ? 'true' : 'false'];
+    const args = ['node_modules/@gltf-transform/cli/bin/cli.js', 'optimize', main, out, '--compress', 'meshopt', '--texture-compress', 'webp', '--texture-size', String(opt.tex), '--simplify', opt.ratio < 1 ? 'true' : 'false'];
     if (opt.ratio < 1) args.push('--simplify-ratio', String(opt.ratio), '--simplify-error', String(opt.error ?? 0.01));
-    execFileSync('npx', args, { stdio: ['ignore', 'ignore', 'inherit'] });
+    execFileSync(process.execPath, args, { stdio: ['ignore', 'ignore', 'inherit'] });
     credit(id, 'model');
     console.log(`[assets] model  ${id.padEnd(22)} → ${mb(out)} MB`);
   } catch (e) {
@@ -99,7 +99,7 @@ for (const [id, opt] of Object.entries(MODELS)) {
 
 for (const [id, res] of Object.entries(TEXTURES)) {
   const dir = join(OUT, 'textures', id);
-  if (existsSync(join(dir, 'diff.jpg')) && !FORCE) continue;
+  if (!want(id) || (existsSync(join(dir, 'diff.jpg')) && !FORCE)) continue;
   try {
     const f = api(`files/${id}`);
     curl(f.Diffuse[res].jpg.url, join(dir, 'diff.jpg'));
@@ -114,7 +114,7 @@ for (const [id, res] of Object.entries(TEXTURES)) {
 
 for (const [id, res] of Object.entries(HDRIS)) {
   const out = join(OUT, 'hdri', `${id}.hdr`);
-  if (existsSync(out) && !FORCE) continue;
+  if (!want(id) || (existsSync(out) && !FORCE)) continue;
   try {
     curl(api(`files/${id}`).hdri[res].hdr.url, out);
     credit(id, 'hdri');

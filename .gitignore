@@ -3,6 +3,8 @@ dist
 data/*.db
 data/*.db-*
 public/mediapipe
+public/cesium
+.asset-cache
 public/models/*.task
 test-results
 .env

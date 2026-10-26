@@ -71,6 +71,7 @@ export class InputRouter {
   }
 
   private onDown = (e: PointerEvent) => {
+    if (this.host.engine.suspended) return;
     if (this.host.menuOpen()) {
       this.host.menuCommit(e.clientX, e.clientY);
       return;
@@ -87,6 +88,7 @@ export class InputRouter {
   };
 
   private onMove = (e: PointerEvent) => {
+    if (this.host.engine.suspended) return;
     if (this.host.menuOpen()) this.host.menuHover(e.clientX, e.clientY);
     if (!this.down) {
       this.host.moveBody(this.ndc(e.clientX, e.clientY)); // a body held by voice follows the pointer
@@ -107,6 +109,7 @@ export class InputRouter {
   private onUp = (e: PointerEvent) => {
     const d = this.down;
     this.down = undefined;
+    if (this.host.engine.suspended) return;
     if (!d) return;
     if (d.button === 2) {
       // Measure circles in pixels: independently normalising X/Y turns a circle
@@ -122,6 +125,7 @@ export class InputRouter {
   };
 
   private onWheel = (e: WheelEvent) => {
+    if (this.host.engine.suspended) return;
     e.preventDefault();
     if (e.shiftKey) this.host.scaleSelected(e.deltaY < 0 ? 1.08 : 1 / 1.08);
     else if (e.altKey) this.host.rotateSelected(e.deltaY < 0 ? 0.15 : -0.15);
@@ -129,6 +133,7 @@ export class InputRouter {
   };
 
   private onKey(e: KeyboardEvent, down: boolean) {
+    if (this.host.engine.suspended) return;
     if (this.host.isTyping()) return;
     const k = e.key.toLowerCase();
     if (this.host.hotkey(k, down)) {
@@ -143,6 +148,7 @@ export class InputRouter {
 
   /** Hand-tracking events → the same abstract actions. */
   handleGestures(events: GestureEvent[], hands: HandFrame[]) {
+    if (this.host.engine.suspended) return;
     this.handsActive = hands.length > 0;
     this.handCursors = [];
     const W = innerWidth, H = innerHeight;
