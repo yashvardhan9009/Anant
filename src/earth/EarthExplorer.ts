@@ -55,7 +55,7 @@ export class EarthExplorer {
       else this.onClose();
     }
     if (e.key === 'Tab') {
-      const items = [...this.root.querySelectorAll<HTMLElement>('button,input,summary,select,canvas')].filter(n => n.offsetParent !== null && !n.hasAttribute('disabled'));
+      const items = [...this.root.querySelectorAll<HTMLElement>('button,input,summary,select,canvas')].filter(n => n.offsetParent !== null && getComputedStyle(n).visibility !== 'hidden' && !n.hasAttribute('disabled'));
       const first = items[0], last = items[items.length - 1];
       if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
