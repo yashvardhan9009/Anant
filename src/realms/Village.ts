@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { Realm, InfoCard, FrameCtx } from '../engine/Realm';
+import { resolveObstacles } from '../engine/motion';
 import { makeSkyDome, makeMotes, Weather, NOISE_GLSL } from '../engine/fx';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { halfTimberHouse, worldBox, M, barrel, crate, grassField, forest, rocks, Ridges, groundMaterial, WIND, addWind } from '../engine/architecture';
@@ -385,6 +386,11 @@ export class Village extends Realm {
   }
 
   private footprints: { x: number; z: number; r: number }[] = [];
+
+  constrainWalk(position: THREE.Vector3) {
+    const safe = resolveObstacles(position.x, position.z, this.footprints);
+    position.x = safe.x; position.z = safe.z; return position;
+  }
   private propSpots: [number, number, number][] = [[9, 1.5, 0], [9.6, 2.2, 0], [-8.6, -3.6, 1], [-9.4, -2.8, 0], [-7.8, -4.6, 1], [14.5, 1, 1]];
   private procProps: THREE.Object3D[] = [];
   private treeSpots: { x: number; y: number; z: number; s: number; rot: number; kind: 'pine' | 'oak' }[] = [];

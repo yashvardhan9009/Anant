@@ -79,6 +79,8 @@ export abstract class Realm {
     return 0;
   }
 
+  constrainWalk(position: THREE.Vector3) { return position; }
+
   sync(state: WorldState, t: number) {
     this.ensureBuilt();
     this.objects.sync(state.objects.filter((o) => o.realm === this.id), state.activeRealm === this.id ? state.selectedId : undefined, t);

@@ -105,6 +105,7 @@ export class App implements InputHost {
 
     this.engine.onPortalCross = (id) => this.run([{ op: 'enter_portal', portal: id }], 'walk');
     this.engine.onFrame = (dt) => this.frame(dt);
+    this.engine.rig.onStep = running => { this.audio.start(); this.audio.step(running); };
     (this.engine.realms.atom as Atom).onViewMode = (mode) => {
       const rig = this.engine.rig;
       if (this.engine.active !== 'atom' || this.engine.transitioning) return;
@@ -433,7 +434,7 @@ export class App implements InputHost {
     try {
       const { EarthExplorer } = await import('./earth/EarthExplorer');
       this.engine.suspended = true;
-      this.engine.rig.keys.clear();
+      this.engine.rig.stopMotion(); this.audio.setSuspended(true);
       this.hud.toggleCinema(false);
       this.hud.root.inert = true;
       this.hud.root.setAttribute('aria-hidden', 'true');
@@ -442,7 +443,7 @@ export class App implements InputHost {
       stage.setAttribute('aria-hidden', 'true');
       const restore = () => {
         this.earth?.dispose(); this.earth = undefined;
-        this.engine.suspended = false; this.engine.rig.keys.clear();
+        this.engine.suspended = false; this.engine.rig.stopMotion(); this.audio.setSuspended(false);
         this.hud.root.inert = false; stage.inert = false;
         this.hud.root.removeAttribute('aria-hidden'); stage.removeAttribute('aria-hidden');
         this.hud.earthPill.focus();

@@ -1,4 +1,4 @@
-export interface Place { name: string; lon: number; lat: number; range: number; pitch?: number; elevation?: number }
+export interface Place { name: string; lon: number; lat: number; range: number; pitch?: number; elevation?: number; heading?: number }
 export const DESTINATIONS: Place[] = [
   { name: 'Earth', lon: 78, lat: 18, range: 18000000, pitch: -90 },
   { name: 'Himalayas', lon: 86.925, lat: 27.988, range: 20000, elevation: 7200, pitch: -18 },

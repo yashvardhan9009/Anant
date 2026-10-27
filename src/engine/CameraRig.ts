@@ -1,6 +1,7 @@
 /** First-person walking + orbit camera, with smooth focus/fly-to. Input-agnostic: callers feed it deltas. */
 import * as THREE from 'three';
 import type { Realm } from './Realm';
+import { dampedMotion } from './motion';
 
 export class CameraRig {
   yaw = 0;
@@ -21,6 +22,11 @@ export class CameraRig {
   locked = false;
   /** movement speed multiplier from the observer's apparent size */
   speedScale = 1;
+  onStep?: (running: boolean) => void;
+  private velocity = new THREE.Vector3();
+  private stepDistance = 0;
+  private gait = 0;
+  private reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   constructor(public camera: THREE.PerspectiveCamera) {}
 
@@ -31,10 +37,14 @@ export class CameraRig {
     this.pitch = pitch;
     this.follow = undefined;
     this.fly = undefined;
+    this.stopMotion();
   }
+
+  stopMotion() { this.keys.clear(); this.velocity.set(0, 0, 0); this.stepDistance = 0; }
 
   /** Free 6-DOF POV: look anywhere, fly anywhere — above, below, inside. */
   setFly() {
+    this.stopMotion();
     const f = this.forward;
     this.pos.copy(this.camera.position);
     this.yaw = Math.atan2(-f.x, -f.z);
@@ -45,6 +55,7 @@ export class CameraRig {
   }
 
   setOrbit(target: THREE.Vector3, camPos: THREE.Vector3) {
+    this.stopMotion();
     this.mode = 'orbit';
     this.target.copy(target);
     const d = camPos.clone().sub(target);
@@ -130,6 +141,10 @@ export class CameraRig {
   }
 
   update(dt: number, realm: Realm) {
+    const fov = this.mode === 'walk' ? 58 : this.mode === 'fly' ? 60 : 46;
+    if (Math.abs(this.camera.fov - fov) > .01) {
+      this.camera.fov += (fov - this.camera.fov) * (1 - Math.exp(-5 * dt)); this.camera.updateProjectionMatrix();
+    }
     const speed = (this.keys.has('shift') ? 16 : 7) * dt * (this.mode === 'walk' ? this.speedScale : 1);
     const move = new THREE.Vector3();
     if (!this.locked) {
@@ -161,10 +176,19 @@ export class CameraRig {
     const e = this.fly ? Math.min(1, (this.fly.t += dt) / this.fly.dur) : 0;
     const ease = e < 0.5 ? 4 * e * e * e : 1 - Math.pow(-2 * e + 2, 3) / 2;
     if (this.mode === 'walk') {
-      if (move.lengthSq()) {
-        this.fly = undefined;
-        move.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw).multiplyScalar(speed);
-        this.pos.add(move);
+      const walking = move.lengthSq() > 0;
+      const before = this.pos.clone();
+      if (walking) this.fly = undefined;
+      if (this.locked || this.fly) this.velocity.set(0, 0, 0);
+      const desired = move.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw)
+        .multiplyScalar((this.keys.has('shift') ? 4.8 : 1.75) * this.speedScale);
+      const x = dampedMotion(this.velocity.x, desired.x, 12, dt), z = dampedMotion(this.velocity.z, desired.z, 12, dt);
+      this.velocity.set(x.velocity, 0, z.velocity);
+      // Small collision steps prevent fast or giant observers tunnelling through houses.
+      const count = Math.min(128, Math.max(1, Math.ceil(Math.hypot(x.distance,z.distance) / .18)));
+      for (let i = 0; i < count; i++) {
+        this.pos.x += x.distance / count; this.pos.z += z.distance / count;
+        realm.constrainWalk?.(this.pos);
       }
       if (this.fly) {
         this.pos.lerpVectors(this.fly.from, this.fly.to, ease);
@@ -178,11 +202,17 @@ export class CameraRig {
         this.pitch = this.fly.fromPitch + (THREE.MathUtils.clamp(tp, -1.2, 1.2) - this.fly.fromPitch) * ease;
         if (e >= 1) this.fly = undefined;
       }
+      realm.constrainWalk?.(this.pos);
       const r = Math.hypot(this.pos.x, this.pos.z);
       if (r > realm.bounds) this.pos.multiplyScalar(realm.bounds / r).setY(this.pos.y);
       const gy = realm.groundY(this.pos.x, this.pos.z) + realm.eyeHeight;
       this.pos.y += (gy - this.pos.y) * Math.min(1, dt * 10);
+      const travelled = walking ? Math.hypot(this.pos.x-before.x,this.pos.z-before.z) : 0;
+      this.stepDistance += travelled;
+      if (this.stepDistance > .86 * this.speedScale) { this.stepDistance %= .86 * this.speedScale; this.onStep?.(this.keys.has('shift')); }
+      this.gait += travelled / Math.max(.1,this.speedScale) * 7.3;
       this.camera.position.copy(this.pos);
+      if (!this.reducedMotion && walking) this.camera.position.y += Math.sin(this.gait) * .012 * Math.min(2,this.speedScale);
       this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
     } else {
       if (move.lengthSq()) {

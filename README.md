@@ -37,8 +37,20 @@ Choose **Cinematic**, **Balanced**, or **Performance** in the top bar. Cinematic
 
 **Earth** opens a dedicated Cesium geospatial view. Drag to pan, scroll to zoom,
 Ctrl+drag to tilt, and use **Orbit** for a slow camera move. **Cinema** hides the
-controls while keeping data credits visible. **Esc** returns to the same ANANT
-world; its renderer and input are suspended during Earth exploration.
+controls while keeping data credits visible. **Start scenic flight** eases into a
+terrain-following cruise. **Fly freely** uses WASD, drag-to-look, E/Q for height,
+and Shift for faster travel. **Walk terrain** places the camera 1.7 m above loaded
+ground, limits steep slopes and uses a human walking pace. It requires a loaded
+surface within 30 km of the camera. Touch direction buttons are also available.
+**Esc** first stops travel or exits Cinema, then returns to the same ANANT world;
+its renderer, input and ambient soundtrack are suspended during Earth exploration.
+
+Daylight, Golden hour and Blue hour simulate local solar time on a midsummer day.
+Depth-aware haze supplies distance cues. Optional wind responds to movement and
+heading; it is synthesized ambience, not a recording of the location. Full screen
+is available where permitted by the browser. Reduced-motion preferences remove
+automatic cruise and flight transitions. Village walking now has acceleration,
+gentle gait, footsteps and building collision; reduced motion disables the gait.
 
 The default uses public data without API keys: EOX Sentinel-2 cloudless 2016
 (approximately 10 m globally), USGS/USDA aerial imagery (approximately 1 m where
@@ -143,7 +155,7 @@ voice / text / gesture
 
 ## Verification
 
-- 123 unit tests cover:
+- 127 unit tests cover:
   - command validation and the reducer;
   - physics (energy conservation, orbital elements, invertible display compression);
   - hydrogen normalisation;
@@ -151,6 +163,7 @@ voice / text / gesture
   - scale, the astronomy catalogue, manipulation with undo, and the multiverse.
   - saved-world isolation, pending gesture undo, unpause/unfreeze, and moving-subject camera tracking.
   - Earth tile boundaries, coordinate input and terrain height decoding.
+  - frame-rate-independent acceleration, braking, walking speed and obstacle collision.
 - `npm run e2e` walks the full demo, including the directive scenes, in Chromium:
   - microscopic water, the galaxy field and Andromeda;
   - holding, moving and undoing the Sun;

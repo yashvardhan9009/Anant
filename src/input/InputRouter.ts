@@ -63,7 +63,7 @@ export class InputRouter {
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     addEventListener('keydown', (e) => this.onKey(e, true));
     addEventListener('keyup', (e) => this.onKey(e, false));
-    addEventListener('blur', () => this.host.engine.rig.keys.clear());
+    addEventListener('blur', () => this.host.engine.rig.stopMotion());
   }
 
   private ndc(x: number, y: number) {

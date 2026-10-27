@@ -377,7 +377,7 @@ export class Engine {
     const frozen = st?.time.frozen ?? false;
     const dt = frozen ? 0 : rdt * (st?.time.scale ?? 1);
     this.t += frozen ? 0 : rdt * (st?.time.scale ?? 1);
-    this.rig.update(rdt, this.realm);
+    this.rig.update(Math.min(.1, wallDt), this.realm);
     if (st) {
       const ctx: FrameCtx = { camera: this.camera, state: st, dt, rdt, t: this.t, frozen, active: true };
       this.realm.update(ctx);

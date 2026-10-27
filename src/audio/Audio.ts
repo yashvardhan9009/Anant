@@ -18,9 +18,12 @@ export class Audio {
   private bed?: { gain: GainNode; nodes: AudioScheduledSourceNode[] };
   enabled = true;
   private current?: RealmId;
+  private suspended = false;
+  private foot = 1;
+  private stepBuffer?: AudioBuffer;
 
   start() {
-    if (this.ctx) return;
+    if (this.ctx) { void this.ctx.resume(); return; }
     try {
       this.ctx = new AudioContext();
       this.master = this.ctx.createGain();
@@ -34,7 +37,23 @@ export class Audio {
 
   setEnabled(on: boolean) {
     this.enabled = on;
-    if (this.master && this.ctx) this.master.gain.setTargetAtTime(on ? 0.55 : 0, this.ctx.currentTime, 0.2);
+    if (this.master && this.ctx) this.master.gain.setTargetAtTime(on && !this.suspended ? 0.55 : 0, this.ctx.currentTime, 0.2);
+  }
+
+  setSuspended(on: boolean) { this.suspended = on; this.setEnabled(this.enabled); }
+
+  step(running: boolean) {
+    if (!this.ctx || !this.master || !this.enabled || this.suspended) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    this.stepBuffer ??= this.noiseBuffer();
+    const source = ctx.createBufferSource(); source.buffer = this.stepBuffer;
+    const filter = ctx.createBiquadFilter(); filter.type = 'bandpass'; filter.frequency.value = 380 + Math.random() * 240; filter.Q.value = .65;
+    const gain = ctx.createGain(); gain.gain.setValueAtTime(running ? .45 : .3, t); gain.gain.exponentialRampToValueAtTime(.0001, t + .16);
+    const pan = ctx.createStereoPanner(); this.foot *= -1; pan.pan.value = this.foot * .22;
+    source.connect(filter).connect(gain).connect(pan).connect(this.master);
+    source.start(t, Math.random()); source.stop(t + .18);
+    source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); pan.disconnect(); };
+    this.tone(90 + Math.random() * 18, .11, 'sine', running ? .07 : .045, 45);
   }
 
   private noiseBuffer() {
