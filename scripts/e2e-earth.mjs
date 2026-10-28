@@ -23,6 +23,7 @@ try {
   await page.getByRole('button', { name: 'Explore Earth', exact: true }).click();
   await page.waitForFunction(() => window.__anant.earth?.viewer?.scene);
   await page.waitForTimeout(15000);
+  report.checks.push({name:'Earth starts in free flight',pass:await page.evaluate(()=>window.__anant.earth.navigator.mode==='fly')});
   await page.screenshot({ path: `${out}/earth-globe.png` });
   for (const name of ['Himalayas', 'Grand Canyon', 'New York']) {
     await page.getByRole('button', { name, exact: true }).click();
@@ -77,7 +78,7 @@ try {
       await page.getByRole('button',{name:'Start scenic flight',exact:true}).click();
       await page.getByRole('button',{name:'Himalayas',exact:true}).click();
       await page.waitForTimeout(6500);
-      report.checks.push({name:'Changing destination cancels a pending scenic journey',pass:await page.evaluate(()=>window.__anant.earth.navigator.mode==='explore'&&!window.__anant.earth.navigator.cruise)});
+      report.checks.push({name:'Changing destination cancels cruise and returns to free flight',pass:await page.evaluate(()=>window.__anant.earth.navigator.mode==='fly'&&!window.__anant.earth.navigator.cruise)});
     }
   }
   await page.getByRole('textbox', { name: 'Search cities or coordinates' }).fill('Mumbai');
@@ -85,6 +86,14 @@ try {
   await page.getByRole('button', { name: 'Mumbai, IN', exact: true }).click();
   await page.waitForTimeout(10000);
   report.checks.push({ name: 'City search', pass: await page.locator('.earth-location').textContent() === 'Mumbai, IN' });
+  const earthView=await page.evaluate(()=>window.__anant.earth.snapshot());
+  await page.getByRole('button',{name:'Imagine / past',exact:true}).click();
+  await page.locator('.experience-studio canvas').waitFor();
+  report.checks.push({name:'Earth opens Studio with destination context',pass:await page.getByLabel('Historical place').inputValue()==='Mumbai, IN'});
+  await page.getByRole('button',{name:'← Return',exact:true}).click();
+  await page.waitForFunction(()=>!window.__anant.openingEarth&&window.__anant.earth?.navigator?.mode==='fly');
+  report.cameraRestore={before:earthView,after:await page.evaluate(()=>window.__anant.earth.snapshot())};
+  report.checks.push({name:'Returning from Studio restores Earth camera',pass:await page.evaluate(before=>{const now=window.__anant.earth.snapshot();return Math.hypot(...now.position.map((v,i)=>v-before.position[i]))<1&&Math.abs(now.pitch-before.pitch)<1e-6&&now.target.name===before.target.name},earthView)});
   await page.getByRole('button', { name: 'Orbit', exact: true }).click();
   await page.waitForTimeout(1000);
   report.checks.push({ name: 'Orbit toggles', pass: await page.getByRole('button', { name: 'Orbit', exact: true }).getAttribute('aria-pressed') === 'true' });
@@ -97,10 +106,11 @@ try {
   report.checks.push({ name: 'Restores unchanged world', pass: await page.evaluate(s => JSON.stringify(window.__anant.state) === s, before) });
   report.checks.push({ name: 'Resumes renderer', pass: await page.evaluate(() => !window.__anant.engine.suspended) });
   await page.evaluate(() => window.__anant.openEarth());
-  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:'← Return to ANANT',exact:true}).click();
   report.checks.push({ name: 'Reopens and disposes', pass: await page.locator('.earth-explorer').count() === 0 });
   await page.emulateMedia({reducedMotion:'reduce'});
   await page.evaluate(()=>window.__anant.openEarth());
+  await page.getByRole('button',{name:'Explore',exact:true}).click();
   await page.getByRole('button',{name:'Start scenic flight',exact:true}).click();
   report.checks.push({name:'Reduced motion disables automatic cruise',pass:await page.evaluate(()=>window.__anant.earth.navigator.mode==='fly'&&!window.__anant.earth.navigator.cruise)});
   await page.keyboard.press('Escape');await page.keyboard.press('Escape');

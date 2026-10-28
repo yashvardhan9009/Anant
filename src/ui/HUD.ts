@@ -48,6 +48,7 @@ export class HUD {
   worldsPill: HTMLButtonElement;
   earthPill: HTMLButtonElement;
   onEarth?: () => void;
+  onImagine?: () => void;
   qualitySelect: HTMLSelectElement;
   private cinemaPill: HTMLButtonElement;
   private cinemaExit: HTMLButtonElement;
@@ -119,7 +120,9 @@ export class HUD {
     document.body.append(this.cinemaExit);
     this.earthPill = h('button', 'pill', 'Explore Earth');
     this.earthPill.onclick = () => this.onEarth?.();
-    ctr.append(this.earthPill, this.aiPill, this.qualitySelect, this.cinemaPill, this.handPill, this.soundPill, this.worldsPill, this.cardPill, helpPill, this.fpsEl);
+    const imagine = h('button', 'pill', 'Imagine');
+    imagine.onclick = () => this.onImagine?.();
+    ctr.append(imagine, this.earthPill, this.aiPill, this.qualitySelect, this.cinemaPill, this.handPill, this.soundPill, this.worldsPill, this.cardPill, helpPill, this.fpsEl);
     top.append(brand, ctr);
 
     this.banner = h('div', 'banner');
@@ -263,12 +266,12 @@ export class HUD {
     }
     if (hh.ai.live) {
       dot.className = 'dot live';
-      lbl.textContent = `NEMOTRON · ${hh.ai.model?.replace(/^nvidia\//, '')}`;
+      lbl.textContent = `AI · ${hh.ai.model?.replace(/^nvidia\//, '')}`;
       this.aiPill.title = `Live inference on ${hh.ai.provider}`;
     } else {
       dot.className = 'dot offline';
       lbl.textContent = hh.ai.mode === 'configured-but-unreachable' ? 'AI unavailable · offline' : 'OFFLINE PARSER';
-      this.aiPill.title = 'The Director is running the deterministic local parser. Set NEBIUS_API_KEY on the server for live Nemotron inference.';
+      this.aiPill.title = 'The Director is running the deterministic local parser. Configure local Ollama or a Nebius API key on the server for live inference.';
     }
   }
 
@@ -302,8 +305,8 @@ export class HUD {
   reply(r: DirectorReply, results: { op: string; result: ExecResult }[]) {
     const e = h('div', 'entry');
     const src = h('div', 'src');
-    if (r.source === 'nemotron') {
-      src.innerHTML = `<span class="live">● NEMOTRON</span><span>${escapeHtml(r.model ?? '')}</span><span>${r.latencyMs ?? '?'} ms</span>`;
+    if (r.source !== 'local-parser') {
+      src.innerHTML = `<span class="live">● ${r.source === 'local-ai' ? 'LOCAL AI' : 'NEMOTRON'}</span><span>${escapeHtml(r.model ?? '')}</span><span>${r.latencyMs ?? '?'} ms</span>`;
     } else {
       src.innerHTML = `<span class="offline">● OFFLINE PARSER</span><span>${escapeHtml(r.fallbackReason ?? 'rule-based fallback')}</span>`;
     }

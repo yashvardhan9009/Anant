@@ -399,5 +399,15 @@
     "license": "CC BY 4.0",
     "source": "https://www.solarsystemscope.com/textures/",
     "note": "Based on NASA imagery and elevation data."
+  },
+  "kloofendal_48d_partly_cloudy_puresky": {
+    "name": "Kloofendal 48d Partly Cloudy (Pure Sky)",
+    "type": "hdri",
+    "authors": [
+      "Greg Zaal",
+      "Jarod Guest"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky"
   }
 }

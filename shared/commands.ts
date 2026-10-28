@@ -281,7 +281,7 @@ export type DirectorReply = {
   commands: Command[];
   unsupported: { request: string; reason: string; suggestion?: string }[];
   issues: ValidationIssue[];
-  source: 'nemotron' | 'local-parser';
+  source: 'nemotron' | 'local-ai' | 'local-parser';
   model?: string;
   latencyMs?: number;
   fallbackReason?: string;

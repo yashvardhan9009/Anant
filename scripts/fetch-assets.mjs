@@ -58,7 +58,7 @@ export const TEXTURES = {
 };
 
 /** HDRI skies (equirectangular, used for both background and image-based lighting). */
-export const HDRIS = { kloppenheim_06_puresky: '4k', kloppenheim_02_puresky: '2k', moonless_golf: '2k' };
+export const HDRIS = { kloppenheim_06_puresky: '4k', kloppenheim_02_puresky: '2k', moonless_golf: '2k', kloofendal_48d_partly_cloudy_puresky: '4k' };
 
 function curl(url, dest) {
   mkdirSync(dirname(dest), { recursive: true });

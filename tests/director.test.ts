@@ -22,7 +22,7 @@ describe('AI Director', () => {
   it('without credentials uses the labelled offline parser', async () => {
     const r = await direct('take me inside an atom', createWorld(), new NebiusClient({ baseUrl: 'x', timeoutMs: 100 }));
     expect(r.source).toBe('local-parser');
-    expect(r.fallbackReason).toMatch(/NEBIUS_API_KEY/);
+    expect(r.fallbackReason).toMatch(/no AI provider configured/);
     expect(r.commands).toEqual([{ op: 'go_to_realm', realm: 'atom' }]);
   });
 

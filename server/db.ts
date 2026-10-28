@@ -8,6 +8,7 @@ import type { DatabaseSync as DatabaseSyncT } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { REALMS } from '../shared/commands.js';
+import { SavedExperienceSchema } from '../shared/experience.js';
 
 // Loaded via require so bundlers/test runners don't rewrite the newer `node:sqlite` builtin id.
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
@@ -51,6 +52,7 @@ export class Store {
     if (!REALMS.includes(state.activeRealm)) return 'invalid activeRealm';
     if (!Array.isArray(state.objects) || !Array.isArray(state.portals) || !Array.isArray(state.history)) return 'missing arrays';
     if (!state.story || !state.cosmos || !state.atom) return 'missing sub-states';
+    if (state.experience && !SavedExperienceSchema.safeParse(state.experience).success) return 'invalid saved experience';
     return null;
   }
 

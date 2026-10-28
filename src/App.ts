@@ -20,6 +20,7 @@ import { Village } from './realms/Village';
 import { Atom } from './realms/Atom';
 import { assets } from './engine/assets';
 import { QUALITY, QUALITY_KEY } from './engine/quality';
+import { isExperienceIntent } from '../shared/experience';
 
 const LS_KEY = 'anant.world.v1';
 const ACTIVE_WORLD_KEY = 'anant.activeWorld.v1';
@@ -52,6 +53,9 @@ export class App implements InputHost {
   private bodyGrab?: { id: string; planeY: number };
   private worldGeneration = 0;
   private earth?: import('./earth/EarthExplorer').EarthExplorer;
+  private studio?: import('./experience/ExperienceStudio').ExperienceStudio;
+  private earthResume?: import('./earth/EarthExplorer').EarthView;
+  private openingStudio = false;
   private openingEarth = false;
 
   constructor() {
@@ -63,6 +67,7 @@ export class App implements InputHost {
 
     this.hud.onSubmit = (t) => this.intention(t);
     this.hud.onEarth = () => void this.openEarth();
+    this.hud.onImagine = () => void this.openStudio();
     this.hud.onSay = (t) => this.say(t);
     this.hud.onCloseDialogue = () => this.closeDialogue();
     this.hud.onAccuse = () => this.accuseCurrent();
@@ -114,6 +119,8 @@ export class App implements InputHost {
         this.hud.system('You are now swimming through liquid water. Fly with WASD · E/Q up/down · drag to look · click a hydrogen to dive in · Z/X shrink/grow.', 'ok');
       } else if (mode === 'quantum' && rig.mode === 'fly') {
         rig.setOrbit(new THREE.Vector3(), rig.camera.position.clone().normalize().multiplyScalar(16));
+        rig.update(0, this.engine.realms.atom);
+        rig.setFly();
       }
     };
     const village = this.engine.realms.village as Village;
@@ -167,7 +174,8 @@ export class App implements InputHost {
     }
     this.loadWorld(loaded ?? createWorld('My Universe'), !!loaded);
     this.engine.start();
-    if (new URLSearchParams(location.search).has('earth')) void this.openEarth();
+    if (new URLSearchParams(location.search).has('studio')) void this.openStudio();
+    else if (new URLSearchParams(location.search).has('earth')) void this.openEarth();
   }
 
   loadWorld(w: WorldState, resumed = false) {
@@ -412,14 +420,16 @@ export class App implements InputHost {
     this.lastDirectorMs = Math.round(performance.now() - t0);
     this.hud.setBusy(false);
     if (generation !== this.worldGeneration) return; // a delayed reply belongs to the previous world
+    if(!reply.commands.length&&reply.unsupported.length&&/^(create|make|build|summon|imagine|wish|turn)/i.test(t)){void this.openStudio(t);return;}
     const results = await this.run(reply.commands, 'director');
     this.hud.reply(reply, results);
-    if (this.health && reply.source === 'nemotron' && !this.health.ai.live) api.health().then((h) => this.hud.setAi((this.health = h))).catch(() => {});
+    if (this.health && reply.source !== 'local-parser' && !this.health.ai.live) api.health().then((h) => this.hud.setAi((this.health = h))).catch(() => {});
   }
 
   /** UI-only requests that are not world operations. */
   private meta(t: string): boolean {
     const s = t.toLowerCase();
+    if (isExperienceIntent(t)) { void this.openStudio(t); return true; }
     if (/^(explore earth|land on earth|open earth|google earth|earth explorer|show earth detail)/.test(s)) { void this.openEarth(); return true; }
     if (/^(help|\?|what can (i|you) do)/.test(s)) { this.hud.toggleHelp(true); return true; }
     if (/(the end|finale|end (the )?demo|experience the impossible)/.test(s)) { this.finale(); return true; }
@@ -428,7 +438,7 @@ export class App implements InputHost {
   }
 
   async openEarth() {
-    if (this.earth || this.openingEarth) return;
+    if (this.earth || this.openingEarth || this.studio || this.openingStudio) return;
     this.openingEarth = true;
     this.hud.earthPill.disabled = true;
     try {
@@ -448,14 +458,63 @@ export class App implements InputHost {
         this.hud.root.removeAttribute('aria-hidden'); stage.removeAttribute('aria-hidden');
         this.hud.earthPill.focus();
       };
-      this.earth = new EarthExplorer(restore);
-      try { await this.earth.start(); } catch (e) { restore(); throw e; }
+      this.earth = new EarthExplorer(restore, place => {
+        this.earthResume = this.earth?.snapshot();
+        restore();
+        void this.openStudio('', place, true);
+      });
+      const explorer = this.earth;
+      try {
+        await explorer.start(this.earthResume);
+        if (this.earth === explorer) this.earthResume = undefined;
+      } catch (e) { restore(); throw e; }
     } catch {
       this.hud.system('Earth could not start. Please reload and try again.', 'fail');
     } finally {
       this.openingEarth = false;
       this.hud.earthPill.disabled = false;
     }
+  }
+
+  async openStudio(prompt = '', place = '', returnToEarth = false) {
+    if (this.studio) { if (prompt) this.studio.setPrompt(prompt); return; }
+    if (this.openingStudio || this.earth) return;
+    this.openingStudio = true;
+    const stage = document.getElementById('stage')!;
+    const restore = () => {
+      this.studio?.dispose();
+      this.studio = undefined;
+      this.engine.suspended = false;
+      this.engine.rig.stopMotion();
+      this.audio.setSuspended(false);
+      this.hud.root.inert = false;
+      stage.inert = false;
+      this.hud.root.removeAttribute('aria-hidden');
+      stage.removeAttribute('aria-hidden');
+      this.hud.input.focus();
+      if (returnToEarth) queueMicrotask(() => void this.openEarth());
+    };
+    try {
+      const { ExperienceStudio } = await import('./experience/ExperienceStudio');
+      this.engine.suspended = true;
+      this.engine.rig.stopMotion();
+      this.audio.setSuspended(true);
+      this.voice.stop();
+      this.closeDialogue(true);
+      this.hud.toggleCinema(false);
+      this.hud.root.inert = true;
+      stage.inert = true;
+      this.hud.root.setAttribute('aria-hidden', 'true');
+      stage.setAttribute('aria-hidden', 'true');
+      const generation = this.worldGeneration;
+      this.studio = new ExperienceStudio(restore, reply => {
+        if (generation === this.worldGeneration) this.setState({ ...this.state, experience: reply, updatedAt: Date.now() });
+      }, this.state.experience, place);
+      if (prompt) { this.studio.setPrompt(prompt); void this.studio.generate(); }
+    } catch (e) {
+      restore();
+      this.hud.system(`Reality studio could not start: ${e instanceof Error ? e.message : 'unknown error'}`, 'fail');
+    } finally { this.openingStudio = false; }
   }
 
   // ———————————————————————————————— story ————————————————————————————————
@@ -497,7 +556,7 @@ export class App implements InputHost {
       const before = new Set(this.state.story.playerKnows);
       const { story, accepted } = applyDialogue(this.state.story, npcId, line, r.outcome, r.source);
       this.setState({ ...this.state, story });
-      const meta = r.source === 'nemotron' ? `Nemotron · ${r.latencyMs} ms · ${r.outcome.emotion}` : `offline dialogue (${r.fallbackReason ?? 'no model'})`;
+      const meta = r.source !== 'offline-dialogue' ? `${r.model ?? 'AI'} · ${r.latencyMs} ms · ${r.outcome.emotion}` : `offline dialogue (${r.fallbackReason ?? 'no model'})`;
       this.hud.dialogueLine('npc', r.outcome.speech, meta);
       this.voice.speak(r.outcome.speech, npc.voice);
       this.audio.sfx('speak');
@@ -763,7 +822,7 @@ export class App implements InputHost {
   toggleFly() {
     const rig = this.engine.rig;
     if (rig.mode === 'fly') {
-      this.engine.placeCameraOnArrival(this.state.activeRealm);
+      this.engine.placeCameraOnArrival(this.state.activeRealm,undefined,true);
       this.hud.system('Camera: guided view.', 'ok');
     } else {
       rig.setFly();

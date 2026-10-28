@@ -42,6 +42,14 @@ export class CameraRig {
 
   stopMotion() { this.keys.clear(); this.velocity.set(0, 0, 0); this.stepDistance = 0; }
 
+  setFlight(pos: THREE.Vector3, yaw: number, pitch = -.05) {
+    this.setWalk(pos, yaw, pitch);
+    this.mode = 'fly';
+    this.camera.position.copy(pos);
+    this.camera.rotation.set(pitch, yaw, 0, 'YXZ');
+    this.camera.updateMatrixWorld();
+  }
+
   /** Free 6-DOF POV: look anywhere, fly anywhere — above, below, inside. */
   setFly() {
     this.stopMotion();
@@ -140,7 +148,7 @@ export class CameraRig {
     }
   }
 
-  update(dt: number, realm: Realm) {
+  update(dt: number, realm: Pick<Realm, 'bounds' | 'groundY' | 'eyeHeight' | 'constrainWalk' | 'controlMode'>) {
     const fov = this.mode === 'walk' ? 58 : this.mode === 'fly' ? 60 : 46;
     if (Math.abs(this.camera.fov - fov) > .01) {
       this.camera.fov += (fov - this.camera.fov) * (1 - Math.exp(-5 * dt)); this.camera.updateProjectionMatrix();
@@ -156,13 +164,23 @@ export class CameraRig {
     if (move.lengthSq() || this.keys.has('e') || this.keys.has('q')) this.idle = 0;
     else this.idle += dt;
     if (this.mode === 'fly') {
-      const sp = ((realm as any).flySpeed?.() ?? this.flySpeed()) * (this.keys.has('shift') ? 4 : 1) * dt;
+      const sp = ((realm as any).flySpeed?.() ?? this.flySpeed()) * (this.keys.has('shift') ? 4 : 1);
       const fwd = this.forward;
       const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
-      if (!this.locked) {
-        this.pos.addScaledVector(fwd, -move.z * sp).addScaledVector(right, move.x * sp);
-        if (this.keys.has('e')) this.pos.y += sp;
-        if (this.keys.has('q')) this.pos.y -= sp;
+      const moving=move.lengthSq()||this.keys.has('e')||this.keys.has('q');
+      if(moving)this.fly=undefined;
+      if(this.fly&&!this.locked){
+        const a=Math.min(1,(this.fly.t+=dt)/this.fly.dur),k=a*a*(3-2*a);
+        this.pos.lerpVectors(this.fly.from,this.fly.to,k);
+        const look=this.fly.look.clone().sub(this.pos),yaw=Math.atan2(-look.x,-look.z),pitch=Math.atan2(look.y,Math.hypot(look.x,look.z));
+        const delta=Math.atan2(Math.sin(yaw-this.fly.fromYaw),Math.cos(yaw-this.fly.fromYaw));
+        this.yaw=this.fly.fromYaw+delta*k;this.pitch=THREE.MathUtils.lerp(this.fly.fromPitch,pitch,k);
+        this.velocity.set(0,0,0);if(a===1)this.fly=undefined;
+      } else if (!this.locked) {
+        const desired=fwd.multiplyScalar(-move.z).addScaledVector(right,move.x);
+        desired.y+=(this.keys.has('e')?1:0)-(this.keys.has('q')?1:0);
+        if(desired.lengthSq()>1)desired.normalize();desired.multiplyScalar(sp);
+        for(const axis of ['x','y','z'] as const){const motion=dampedMotion(this.velocity[axis],desired[axis],moving?4:7,dt);this.velocity[axis]=motion.velocity;this.pos[axis]+=motion.distance;}
       }
       // never fall through the ground in walkable realms
       const gy = realm.controlMode === 'walk' ? realm.groundY(this.pos.x, this.pos.z) + 0.3 : -Infinity;

@@ -11,6 +11,8 @@ import { npcReply } from './npc.js';
 import { Store } from './db.js';
 import { NPC_BY_ID } from '../shared/story.js';
 import { earthImagery } from './earth.js';
+import { composeExperience } from './experience.js';
+import { ExperienceRequestSchema } from '../shared/experience.js';
 
 // Minimal .env loader (no dependency): KEY=VALUE lines, existing env wins.
 try {
@@ -96,13 +98,22 @@ const server = createServer(async (req, res) => {
         ok: true,
         ai: {
           live: llm.enabled && !!model,
-          provider: 'Nebius Token Factory',
+          provider: llm.provider,
           model: model ?? null,
-          mode: llm.enabled ? (model ? 'nemotron' : 'configured-but-unreachable') : 'offline-parser',
+          mode: llm.enabled ? (model ? llm.source : 'configured-but-unreachable') : 'offline-parser',
           lastError: llm.lastError ?? null,
           lastLatencyMs: llm.lastLatencyMs ?? null,
         },
       });
+    }
+
+    if (path === '/api/experience' && req.method === 'POST') {
+      const parsed = ExperienceRequestSchema.safeParse(await readBody(req, 80000));
+      if (!parsed.success) return send(res, 400, {error:'Invalid scene request. Use a prompt of 1–1600 characters and a valid scene.'});
+      const cancel=new AbortController();res.on('close',()=>{if(!res.writableEnded)cancel.abort();});
+      const reply=await composeExperience(parsed.data, llm, undefined, cancel.signal);
+      if(!res.destroyed)return send(res, 200, reply);
+      return;
     }
 
     if (path === '/api/director' && req.method === 'POST') {
@@ -156,5 +167,5 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, () => {
   const address = server.address();
   console.log(`[anant] server on http://localhost:${typeof address === 'object' && address ? address.port : PORT}`);
-  console.log(`[anant] AI: ${llm.enabled ? `Nebius Token Factory @ ${llm.cfg.baseUrl} (model: ${llm.cfg.model ?? 'auto-select Nemotron'})` : 'NO NEBIUS_API_KEY → offline parser / offline dialogue (clearly labelled in the UI)'}`);
+  console.log(`[anant] AI: ${llm.enabled ? `${llm.provider} @ ${llm.cfg.baseUrl} (model: ${llm.cfg.model ?? 'auto-select'})` : 'Offline parser / offline dialogue (clearly labelled in the UI)'}`);
 });

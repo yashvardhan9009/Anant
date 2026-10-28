@@ -3,10 +3,10 @@ import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Start a directly owned Node process, with a unique DB and an OS-assigned port. */
-export async function startTestServer(out) {
+export async function startTestServer(out, {offline=true}={}) {
   const dir = mkdtempSync(join(out, 'run-'));
   const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
-    env: { ...process.env, PORT: process.env.E2E_PORT || '0', ANANT_DB: join(dir, 'worlds.db'), ANANT_OFFLINE: '1' },
+    env: { ...process.env, PORT: process.env.E2E_PORT || '0', ANANT_DB: join(dir, 'worlds.db'), ANANT_OFFLINE: offline?'1':'0' },
     windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stopped = false;
@@ -35,7 +35,7 @@ export async function startTestServer(out) {
       child.stderr.on('data', data => process.stderr.write(data));
     });
     const health = await fetch(`${url}/api/health`).then(r => r.json());
-    if (health.ai.mode !== 'offline-parser') throw new Error('Tests must use the offline parser');
+    if (offline&&health.ai.mode !== 'offline-parser') throw new Error('Tests must use the offline parser');
     return { url, stop };
   } catch (error) { await stop(); throw error; }
 }

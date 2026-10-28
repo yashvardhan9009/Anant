@@ -10,6 +10,7 @@ import { cinematicAtmosphere } from './atmosphere';
 const el = <T extends keyof HTMLElementTagNameMap>(tag: T, className = '', text = '') => {
   const node = document.createElement(tag); node.className = className; node.textContent = text; return node;
 };
+export interface EarthView {position:[number,number,number];heading:number;pitch:number;roll:number;target?:Place;lighting:string}
 
 /** Separate geospatial camera: metre-scale surface detail must not use the solar
  * system's deliberately compressed scene coordinates. No world state is changed. */
@@ -62,7 +63,7 @@ export class EarthExplorer {
     }
   };
 
-  constructor(private onClose: () => void) {
+  constructor(private onClose: () => void, onImagine?: (place:string)=>void) {
     this.root.setAttribute('aria-label', 'Earth explorer');
     this.root.setAttribute('role', 'dialog'); this.root.setAttribute('aria-modal', 'true');
     const chrome = el('header', 'earth-header');
@@ -70,6 +71,7 @@ export class EarthExplorer {
     const title = el('div', 'earth-title'); title.append(el('span', '', 'ANANT / EARTH'), this.location);
     const actions = el('div', 'earth-actions');
     const orbit = el('button', '', 'Orbit'); orbit.setAttribute('aria-pressed', 'false');
+    orbit.classList.add('earth-orbit');
     orbit.onclick = () => { const on = !this.orbiting; this.setMode('explore'); this.viewer?.camera.cancelFlight(); this.orbiting = on; orbit.setAttribute('aria-pressed', String(on)); };
     const cinema = el('button', '', 'Cinema');
     cinema.className = 'earth-cinema-button'; cinema.onclick = () => this.toggleCinema();
@@ -80,6 +82,7 @@ export class EarthExplorer {
       catch { this.status.textContent = 'Full screen is unavailable in this browser. Cinema still hides the controls.'; }
     };
     document.addEventListener('fullscreenchange', this.fullscreenChanged);
+    const imagine=el('button','','Imagine / past');imagine.title='Create a scene using the last selected destination as a starting point';imagine.onclick=()=>onImagine?.(this.target?.name??'');
     actions.append(placesToggle, orbit, cinema, this.fullscreen); chrome.append(back, title, actions);
     const panel = this.panel;
     const form = el('form', 'earth-search');
@@ -91,7 +94,7 @@ export class EarthExplorer {
     const note = el('details', 'earth-data');
     note.append(el('summary', '', 'Imagery & terrain'));
     this.info.textContent = 'Public satellite imagery draped over measured terrain. Global Sentinel imagery: 2016, approximately 10 m. US aerial imagery: approximately 1 m where available. Dates and detail vary. Buildings are photographed from above; this mode has no reconstructed 3D buildings. Lighting presets simulate a midsummer day; wind is synthesized ambience. Ground-level detail is limited by the imagery.';
-    note.append(this.info); panel.append(form, this.results, places, note);
+    note.append(this.info); panel.append(form, this.results, places, imagine, note);
     const experience = el('div', 'earth-experience');
     const sunlight = el('label', 'earth-setting', 'Lighting');
     this.light.setAttribute('aria-label', 'Lighting');
@@ -131,7 +134,7 @@ export class EarthExplorer {
     back.focus();
   }
 
-  async start() {
+  async start(resumeView?: EarthView) {
     (window as any).CESIUM_BASE_URL = '/cesium/';
     C.Ion.defaultAccessToken = '';
     this.terrain = publicTerrain(() => { if (!this.disposed) this.status.textContent = 'Some terrain tiles could not load. Move or zoom to retry.'; });
@@ -185,7 +188,8 @@ export class EarthExplorer {
     const satellite = viewer.imageryLayers.addImageryProvider(imagery);
     satellite.brightness = .95; satellite.saturation = .94;
     imagery.errorEvent.addEventListener(() => { this.status.textContent = 'Imagery service unavailable. Terrain may still load.'; });
-    this.flyTo(DESTINATIONS[0], 0);
+    if (resumeView) this.restoreView(resumeView);
+    else { this.flyTo(DESTINATIONS[0], 0); this.setMode('fly'); }
     // Public-domain US aerial imagery only refines the continental US rectangle.
     const aerial = new C.UrlTemplateImageryProvider({
       url: 'https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/exportImage?bbox={westProjected},{southProjected},{eastProjected},{northProjected}&bboxSR=3857&imageSR=3857&size=256,256&format=png&f=image',
@@ -236,7 +240,19 @@ export class EarthExplorer {
     const center = C.Cartesian3.fromDegrees(place.lon, place.lat, place.elevation ?? 0);
     this.viewer.camera.flyToBoundingSphere(new C.BoundingSphere(center, 1), {
       duration: this.reducedMotion ? 0 : duration, offset: new C.HeadingPitchRange(place.heading ?? 0, C.Math.toRadians(place.pitch ?? -55), place.range),
+      complete:()=>{if(!this.disposed)this.setMode('fly');},
     });
+  }
+
+  snapshot():EarthView|undefined {
+    const c=this.viewer?.camera;if(!c)return;
+    return {position:[c.positionWC.x,c.positionWC.y,c.positionWC.z],heading:c.heading,pitch:c.pitch,roll:c.roll,target:this.target,lighting:this.light.value};
+  }
+  restoreView(view:EarthView){
+    if(!this.viewer)return;
+    this.target=view.target;this.location.textContent=view.target?.name??'Earth';this.light.value=view.lighting;this.setLighting();
+    this.viewer.camera.cancelFlight();this.viewer.camera.setView({destination:new C.Cartesian3(...view.position),orientation:{heading:view.heading,pitch:view.pitch,roll:view.roll}});
+    this.setMode('fly');
   }
 
   private toggleCinema() {
@@ -246,7 +262,7 @@ export class EarthExplorer {
 
   setMode(mode: TravelMode) {
     this.flightGeneration++; this.orbiting = false;
-    this.root.querySelector('.earth-actions button:nth-child(2)')?.setAttribute('aria-pressed', 'false');
+    this.root.querySelector('.earth-orbit')?.setAttribute('aria-pressed', 'false');
     if (!this.navigator) return;
     const accepted = this.navigator.setMode(mode);
     if (!accepted) mode = 'explore';

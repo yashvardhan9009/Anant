@@ -186,7 +186,7 @@ export class Engine {
   }
 
   /** Where the camera stands after arriving in a realm (in front of the return portal, facing inward). */
-  placeCameraOnArrival(realm: RealmId, viaPortalId?: string) {
+  placeCameraOnArrival(realm: RealmId, viaPortalId?: string, guided = false) {
     const r = this.realms[realm];
     const ret = viaPortalId ? this.state?.portals.find((p) => p.id === this.state.portals.find((q) => q.id === viaPortalId)?.linkedPortalId) : undefined;
     const base = ret ? new THREE.Vector3(...ret.position) : new THREE.Vector3(...ARRIVAL[realm]);
@@ -197,8 +197,11 @@ export class Engine {
       const camPos = base.clone().addScaledVector(n, 3.5);
       camPos.y = realm === 'cosmos' || realm === 'heavy' ? 14 : 4;
       this.rig.setOrbit(target, camPos);
+      if(!guided){this.rig.update(0,r);this.rig.setFly();}
     } else {
-      this.rig.setWalk(base.clone().addScaledVector(n, 3.5), Math.atan2(-n.x, -n.z), r.arrivalPitch);
+      const position=base.clone().addScaledVector(n,3.5);
+      if(guided)this.rig.setWalk(position,Math.atan2(-n.x,-n.z),r.arrivalPitch);
+      else this.rig.setFlight(position,Math.atan2(-n.x,-n.z),r.arrivalPitch);
     }
   }
 
@@ -239,7 +242,7 @@ export class Engine {
         // fly into the portal disc
         const target = pv.group.position.clone().addScaledVector(pv.normal, -0.6);
         const e = k * k * (3 - 2 * k);
-        if (fromRig === 'walk') this.rig.pos.lerpVectors(from, target, e);
+        if (fromRig !== 'orbit') this.rig.pos.lerpVectors(from, target, e);
         else { this.rig.target.lerp(pv.group.position, e * 0.2); this.rig.radius = THREE.MathUtils.lerp(this.rig.radius, 1.5, e * 0.15); }
       }
     });

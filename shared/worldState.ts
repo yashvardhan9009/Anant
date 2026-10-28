@@ -57,6 +57,7 @@ export interface HistoryEntry {
 }
 
 export interface WorldState {
+  experience?: import('./experience').ExperienceReply;
   schema: 1;
   id: string;
   name: string;

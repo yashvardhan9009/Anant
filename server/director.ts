@@ -56,7 +56,7 @@ export async function direct(input: string, world: WorldState, llm: NebiusClient
     return { ...p, issues: [], source: 'local-parser', latencyMs: Date.now() - t0, fallbackReason: reason };
   };
   if (!input.trim()) return { narration: '', commands: [], unsupported: [], issues: [], source: 'local-parser', fallbackReason: 'empty input' };
-  if (!llm.enabled) return local('no NEBIUS_API_KEY configured — running the offline parser');
+  if (!llm.enabled) return local('no AI provider configured — running the offline parser');
 
   const messages = [
     { role: 'system' as const, content: buildDirectorPrompt(world) },
@@ -85,12 +85,12 @@ export async function direct(input: string, world: WorldState, llm: NebiusClient
       commands: valid,
       unsupported: shape.data.unsupported,
       issues,
-      source: 'nemotron',
+      source: llm.source,
       model,
       latencyMs: Date.now() - t0,
     };
   } catch (e: any) {
     const kind = e instanceof LlmError ? e.kind : 'error';
-    return local(`Nemotron call failed (${kind}: ${String(e.message).slice(0, 160)}) — used the offline parser`);
+    return local(`AI call failed (${kind}: ${String(e.message).slice(0, 160)}) — used the offline parser`);
   }
 }

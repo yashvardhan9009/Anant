@@ -4,6 +4,7 @@
  */
 
 export interface LlmConfig {
+  provider?: 'nebius' | 'ollama';
   apiKey?: string;
   baseUrl: string;
   model?: string;
@@ -28,11 +29,13 @@ export const PREFERRED_MODELS = [
 ];
 
 export function configFromEnv(env = process.env): LlmConfig {
+  const local = env.ANANT_OFFLINE !== '1' && env.ANANT_AI_PROVIDER === 'ollama';
   return {
-    apiKey: env.ANANT_OFFLINE === '1' ? undefined : env.NEBIUS_API_KEY || undefined,
-    baseUrl: (env.NEBIUS_BASE_URL || 'https://api.tokenfactory.nebius.com/v1').replace(/\/+$/, ''),
-    model: env.ANANT_MODEL || undefined,
-    timeoutMs: Number(env.ANANT_LLM_TIMEOUT_MS || 15000),
+    provider: local ? 'ollama' : 'nebius',
+    apiKey: env.ANANT_OFFLINE === '1' || local ? undefined : env.NEBIUS_API_KEY || undefined,
+    baseUrl: (local ? env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434' : env.NEBIUS_BASE_URL || 'https://api.tokenfactory.nebius.com/v1').replace(/\/+$/, ''),
+    model: (local ? env.OLLAMA_MODEL : env.ANANT_MODEL) || undefined,
+    timeoutMs: Number(env.ANANT_LLM_TIMEOUT_MS || (local ? 120000 : 15000)),
   };
 }
 
@@ -44,22 +47,25 @@ export class NebiusClient {
   constructor(public cfg: LlmConfig, private fetchImpl: typeof fetch = fetch) {}
 
   get enabled() {
-    return !!this.cfg.apiKey;
+    return this.cfg.provider === 'ollama' || !!this.cfg.apiKey;
   }
+
+  get provider() { return this.cfg.provider === 'ollama' ? 'Local AI · Ollama' : 'Nebius Token Factory'; }
+  get source(): 'local-ai' | 'nemotron' { return this.cfg.provider === 'ollama' ? 'local-ai' : 'nemotron'; }
 
   get model() {
     return this.resolvedModel ?? this.cfg.model;
   }
 
   private async request(path: string, init: RequestInit, timeoutMs = this.cfg.timeoutMs): Promise<any> {
-    if (!this.cfg.apiKey) throw new LlmError('no-credentials', 'NEBIUS_API_KEY is not set');
+    if (!this.enabled) throw new LlmError('no-credentials', 'No AI provider configured');
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
       const res = await this.fetchImpl(`${this.cfg.baseUrl}${path}`, {
         ...init,
-        signal: ctrl.signal,
-        headers: { Authorization: `Bearer ${this.cfg.apiKey}`, 'Content-Type': 'application/json', Accept: 'application/json', ...(init.headers || {}) },
+        signal: init.signal ? AbortSignal.any([ctrl.signal,init.signal]) : ctrl.signal,
+        headers: { ...(this.cfg.provider !== 'ollama' && this.cfg.apiKey ? {Authorization: `Bearer ${this.cfg.apiKey}`} : {}), 'Content-Type': 'application/json', Accept: 'application/json', ...(init.headers || {}) },
       });
       const text = await res.text();
       if (!res.ok) throw new LlmError('http', `HTTP ${res.status}: ${text.slice(0, 300)}`, res.status);
@@ -79,6 +85,13 @@ export class NebiusClient {
 
   /** Pick a model: explicit config wins; otherwise the best available NVIDIA Nemotron model. */
   async resolveModel(): Promise<string> {
+    if (this.cfg.provider === 'ollama') {
+      const list = await this.request('/api/tags', {method:'GET'}, 3000);
+      const ids: string[] = (list.models ?? []).map((m: any) => m.name);
+      const pick = this.cfg.model ? ids.find(id => id === this.cfg.model) : ids.find(id => /^qwen3\.5:/i.test(id)) ?? ids.find(id => !/embed/i.test(id));
+      if (!pick) throw new LlmError('no-model', 'Configured local model is not installed. No model was downloaded.');
+      return (this.resolvedModel = pick);
+    }
     if (this.resolvedModel) return this.resolvedModel;
     if (this.cfg.model) return (this.resolvedModel = this.cfg.model);
     const list = await this.request('/models', { method: 'GET' }, Math.min(this.cfg.timeoutMs, 8000));
@@ -88,17 +101,19 @@ export class NebiusClient {
     return (this.resolvedModel = pick);
   }
 
-  async chat(messages: ChatMessage[], opts: { maxTokens?: number; temperature?: number } = {}): Promise<{ text: string; model: string; latencyMs: number }> {
+  async chat(messages: ChatMessage[], opts: { maxTokens?: number; temperature?: number; schema?: object; signal?:AbortSignal } = {}): Promise<{ text: string; model: string; latencyMs: number }> {
     const model = await this.resolveModel();
     const t0 = Date.now();
     // Nemotron reasoning models: "/no_think" disables the long reasoning trace for snappy, structured replies.
     const msgs = /nemotron/i.test(model) && messages[0]?.role === 'system' ? [{ ...messages[0], content: `/no_think\n${messages[0].content}` }, ...messages.slice(1)] : messages;
     try {
-      const json = await this.request('/chat/completions', {
+      const local = this.cfg.provider === 'ollama';
+      const json = await this.request(local ? '/api/chat' : '/chat/completions', {
         method: 'POST',
-        body: JSON.stringify({ model, messages: msgs, max_tokens: opts.maxTokens ?? 700, temperature: opts.temperature ?? 0.4 }),
+        signal:opts.signal,
+        body: JSON.stringify(local ? {model, messages: msgs, stream:false, think:false, format:opts.schema ?? 'json', keep_alive:'10m', options:{num_ctx:opts.schema?8192:4096,num_predict:opts.maxTokens ?? 700, temperature:opts.temperature ?? .4}} : { model, messages: msgs, max_tokens: opts.maxTokens ?? 700, temperature: opts.temperature ?? 0.4 }),
       });
-      const text = json?.choices?.[0]?.message?.content;
+      const text = local ? json?.message?.content : json?.choices?.[0]?.message?.content;
       if (typeof text !== 'string') throw new LlmError('parse', 'no message content in completion');
       this.lastLatencyMs = Date.now() - t0;
       this.lastError = undefined;

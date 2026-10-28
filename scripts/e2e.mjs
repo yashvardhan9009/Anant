@@ -180,7 +180,14 @@ await step('scene6-gesture-manipulate', async () => {
   return [r];
 }, (s, a) => (a[0].scale > 2.2 * 1.4 && Math.abs(a[0].rot - 0.8) < 1e-3 && a[0].after.join() !== a[0].before.join()) || JSON.stringify(a[0]));
 await step('scene7-unscripted', async () => [await say('Summon a huge red dragon and make the sky purple'), await say('Make gravity weaker then create a storm')], (s) => s.objects.includes('dragon@village') || `objects ${s.objects}`);
-await step('scene7-honest-unsupported', async () => [await say('Show me what happened here 100 years ago'), await say('Let me talk to the king')], () => true);
+await step('scene7-history-studio', async () => {
+  await say('Show me what happened here 100 years ago');
+  await page.locator('.experience-studio').waitFor();
+  const opened=await page.evaluate(()=>window.__anant.engine.suspended&&document.querySelector('.experience-studio select').value==='history');
+  await page.getByRole('button',{name:'← Return',exact:true}).click();
+  const restored=await page.evaluate(()=>!window.__anant.engine.suspended&&!document.querySelector('#hud').inert);
+  return [{opened,restored},await say('Let me talk to the king')];
+}, (s,a)=>a[0].opened&&a[0].restored||'history studio did not restore the main world');
 
 // ——— Master directive scenes: scale, micro-world, cosmic zoom, manipulation, multiverse ———
 await step('scene8-microscopic', async () => [await say('Make me the size of a water molecule')], (s) => (s.realm === 'atom' && s.size < 1e-8) || `realm ${s.realm} size ${s.size}`);

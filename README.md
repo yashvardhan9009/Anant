@@ -1,6 +1,30 @@
 # ANANT — EXPERIENCE THE IMPOSSIBLE.
 
-ANANT is an AI-directed immersive experience engine that runs in the browser. You speak or type an intention and an NVIDIA Nemotron model on **Nebius Token Factory** turns it into **validated, structured commands**. A deterministic engine then executes those commands. The model never runs code.
+ANANT is an AI-directed immersive experience engine that runs in the browser. Speak or type an intention; **local Ollama models** or **Nebius Token Factory** turn it into validated commands or a compositional scene plan. A deterministic engine executes the plan. The model never runs code.
+
+## Reality Studio: describe, explore, reshape
+
+Choose **Imagine** in ANANT or **Imagine / past** in Earth. The Studio combines scanned materials and natural assets with procedural architecture, atmospheric lighting, reflective water, volumetric fire, ice, lightning, vortices, portals, fireflies and steam. Free flight is the default: WASD moves, E/Q rises and descends, Shift accelerates, and dragging looks around. Choose **Flying / switch to walk** to return to human eye height. Select an element (keys 1–8), then click in the world to cast; 0 returns to exploration. Water extinguishes fire into steam, ice freezes water, and fire melts ice. These are authored interaction rules and visual approximations, not fluid or combustion solvers.
+
+Type a new scene or check **Refine this scene** to change the current composition. **Undo / Redo**, **Pause time**, instant Daylight/Golden hour/Blue hour/Night lighting, **Cinema**, optional synthesized ambience, and optional browser speech recognition are available. Spoken text can be reviewed before creation. The scene and research references save with the active world; undo history lasts for the current Studio visit. While a request runs you can keep exploring, cancel it, or cast an element. A cancelled or failed generation preserves the current scene.
+
+For **Reconstruct the past**, enter a place and period, or describe them in the wish. ANANT searches public Wikipedia reference articles and supplies the excerpts to the model. The Scene notes panel links the sources and identifies the result as an **artistic reconstruction**. Sources provide context, not verification of geometry or a literal view of the past. If research fails, the UI says so; it does not invent citations. Earth supplies the last selected destination as an editable starting point, and historical scenes open separately from measured Earth terrain.
+
+Cinematic Studio rendering uses photographic HDR skies matched to the key light, environment reflections, contact shading, multisampled HDR rendering, scanned foliage, layered stone paving, volumetric flame and a bounded-rate planar water reflection. Distant trees use projections of the scanned asset to control geometry cost. The foreground uses scanned foliage with wind and approximate leaf backlighting; the landscape adds geometric ground relief, soil/vegetation blending, a ridged heightfield with thermal relaxation, slope-dependent colors and triplanar rock textures. Stone uses world-scale mapping and damp staining. Fire combines turbulent volumetric emission, advected smoke, embers and flickering local illumination. The planar reflection captures nearby architecture and effects; distant foliage uses the environment map. Lighting combines image-based illumination, direct shadows and screen-space contact shading, not full path-traced global illumination. Camera motion accelerates and brakes smoothly; **Create a world** expands the controls and clicking the scene restores the compact play layout.
+
+The composer supports bounded scenes (60 objects, 12 effects) made from the listed assets and primitives. It does not generate arbitrary new meshes, realistic humans, or physically exact versions of every phenomenon. With AI offline, the authored demonstration and casting work, but the UI explicitly says that a requested new scene was not generated.
+
+To use an already installed local model, add to `.env`:
+
+```dotenv
+ANANT_AI_PROVIDER=ollama
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=qwen3.5:9b
+```
+
+Ollama must already be running and that model installed. No API key is required, and ANANT never pulls models. Local AI processes scene prompts on the configured local service; history search terms go to Wikipedia. `ANANT_OFFLINE=1` overrides both providers. Without a local provider or Nebius key, ANANT uses the labeled offline parser.
+
+After building, `node scripts/e2e-experience.mjs` exercises the Studio using a deterministic test fixture. Set `EXPERIENCE_LIVE=1` to additionally exercise the configured model, actual scene refinement and public historical research. The live run records the model, generated plans, source references, measured frame rate, browser errors, screenshots, cancellation, persistence and mobile layout. It does not validate microphone hardware or historical accuracy.
 
 Built for the Nebius × NVIDIA hackathon.
 
@@ -26,7 +50,8 @@ Built for the Nebius × NVIDIA hackathon.
 
 Hand gestures (MediaPipe, optional) control grab, pinch-scale, rotate and drawing a circle to open a portal. Mouse and keyboard work everywhere:
 - **WASD** moves.
-- **C** toggles fly mode.
+- **Free flight is the default** in the main realms, Studio and Earth. **E / Q** rises and descends; **Shift** travels faster.
+- **C** switches the main realms between flight and guided walking/orbit. Studio and Earth have explicit travel controls.
 - **Z** / **X** shrink and grow you.
 - **Shift+drag** grabs a body.
 - **P** opens Cinema mode, hiding the interface and labels; **Esc** restores them.
@@ -35,7 +60,7 @@ Choose **Cinematic**, **Balanced**, or **Performance** in the top bar. Cinematic
 
 ## Detailed Earth and scene assets
 
-**Earth** opens a dedicated Cesium geospatial view. Drag to pan, scroll to zoom,
+**Earth** opens a dedicated Cesium geospatial view in free flight. Choose **Explore** for map controls: drag to pan, scroll to zoom,
 Ctrl+drag to tilt, and use **Orbit** for a slow camera move. **Cinema** hides the
 controls while keeping data credits visible. **Start scenic flight** eases into a
 terrain-following cruise. **Fly freely** uses WASD, drag-to-look, E/Q for height,
@@ -118,7 +143,7 @@ Optionally copy `.env.example` to `.env` and add `NEBIUS_API_KEY`. The offline p
 
 | Variable | Purpose |
 |---|---|
-| `NEBIUS_API_KEY` | Enables Nemotron on Nebius Token Factory. Without it, ANANT uses a deterministic offline parser and the UI labels it **OFFLINE PARSER**. |
+| `NEBIUS_API_KEY` | Enables Nemotron on Nebius Token Factory. Without it or a configured Ollama provider, ANANT uses a deterministic offline parser and the UI labels it **OFFLINE PARSER**. |
 | `NEBIUS_BASE_URL` | Defaults to `https://api.tokenfactory.nebius.com/v1`. |
 | `ANANT_MODEL` | Pins a model. Otherwise the first available of `nvidia/Llama-3_3-Nemotron-Super-49B-v1_5`, `nvidia/NVIDIA-Nemotron-Nano-9B-v2`, and so on is used. |
 | `ANANT_DB` | SQLite file for saved worlds (default `data/anant.db`). |
@@ -155,7 +180,7 @@ voice / text / gesture
 
 ## Verification
 
-- 127 unit tests cover:
+- 143 unit tests cover:
   - command validation and the reducer;
   - physics (energy conservation, orbital elements, invertible display compression);
   - hydrogen normalisation;
@@ -163,7 +188,8 @@ voice / text / gesture
   - scale, the astronomy catalogue, manipulation with undo, and the multiverse.
   - saved-world isolation, pending gesture undo, unpause/unfreeze, and moving-subject camera tracking.
   - Earth tile boundaries, coordinate input and terrain height decoding.
-  - frame-rate-independent acceleration, braking, walking speed and obstacle collision.
+  - frame-rate-independent acceleration, braking, default free flight, walking speed and obstacle collision.
+  - bounded scene composition, additive edits, grounded layouts, elemental interactions, local AI configuration and historical source handling.
 - `npm run e2e` walks the full demo, including the directive scenes, in Chromium:
   - microscopic water, the galaxy field and Andromeda;
   - holding, moving and undoing the Sun;
@@ -174,7 +200,8 @@ voice / text / gesture
 
 ## Known limitations
 
-- **No live Nemotron run is recorded here.** The development container had no `NEBIUS_API_KEY`, so every verification ran on the offline parser. The Nebius endpoint was reachable. The Nemotron path (JSON extraction, one repair attempt, schema validation) is covered by unit tests with a mocked API.
+- **Live local AI is now exercised separately** by the opt-in Studio browser test: actual scene creation, additive refinement and public historical research. Results record the configured model and latency.
+- **Original baseline: no live Nemotron run was recorded.** The development container had no `NEBIUS_API_KEY`, so every verification ran on the offline parser. The Nebius endpoint was reachable. The Nemotron path (JSON extraction, one repair attempt, schema validation) is covered by unit tests with a mocked API.
 - **Rendering cost varies by scene and GPU.** The cinematic revision was exercised in headless Chromium on Intel integrated graphics through Direct3D 11. The detailed village and galaxy scenes can run below 30 fps on that hardware; use Balanced or Performance when responsiveness matters more than visual detail. Cinematic keeps at least native pixel density. These measurements are not an RTX benchmark.
 - **Visual exaggeration.**
   - Characters use textured MakeHuman meshes and animation; buildings remain procedural geometry. These are rendered game assets, not scanned people or film-production assets.

@@ -9,7 +9,7 @@ async function j<T>(res: Response): Promise<T> {
 }
 
 export interface Health { ok: boolean; ai: { live: boolean; provider: string; model: string | null; mode: string; lastError: string | null; lastLatencyMs: number | null } }
-export interface NpcApiReply { outcome: DialogueOutcome; source: 'nemotron' | 'offline-dialogue'; model?: string; latencyMs: number; fallbackReason?: string; droppedReveals: string[] }
+export interface NpcApiReply { outcome: DialogueOutcome; source: 'nemotron' | 'local-ai' | 'offline-dialogue'; model?: string; latencyMs: number; fallbackReason?: string; droppedReveals: string[] }
 
 export const api = {
   health: () => fetch('/api/health').then((r) => j<Health>(r)),
