@@ -27,6 +27,9 @@
     "large_castle_door"
   ],
   "textures": [
+    "marble_01",
+    "granite_tile_02",
+    "concrete_floor_02",
     "cobblestone_floor_01",
     "grassy_cobblestone",
     "plastered_wall_02",

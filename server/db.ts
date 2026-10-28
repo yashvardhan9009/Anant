@@ -52,6 +52,8 @@ export class Store {
     if (!REALMS.includes(state.activeRealm)) return 'invalid activeRealm';
     if (!Array.isArray(state.objects) || !Array.isArray(state.portals) || !Array.isArray(state.history)) return 'missing arrays';
     if (!state.story || !state.cosmos || !state.atom) return 'missing sub-states';
+    const companion=state.cosmos.blackHoleCompanion;
+    if(companion && (typeof companion.bodyId!=='string'||!Number.isFinite(companion.distanceRs)||companion.distanceRs<4||companion.distanceRs>80))return 'invalid black-hole companion';
     if (state.experience && !SavedExperienceSchema.safeParse(state.experience).success) return 'invalid saved experience';
     return null;
   }

@@ -1,5 +1,12 @@
 # ANANT — EXPERIENCE THE IMPOSSIBLE.
 
+The project-wide visual objective and hardware budget are recorded in
+[Rendering target](docs/rendering-target.md). The latest pass replaces the
+primitive dragon with a textured animated creature, rebuilds the Nexus arcade
+and surfaces, adds an Ultra graphics option, and repairs malformed AI command
+plans before execution. The Studio now lists requested behaviours it cannot
+simulate, rather than claiming that a visual approximation implements them.
+
 ANANT is an AI-directed immersive experience engine that runs in the browser. Speak or type an intention; **local Ollama models** or **Nebius Token Factory** turn it into validated commands or a compositional scene plan. A deterministic engine executes the plan. The model never runs code.
 
 ## Reality Studio: describe, explore, reshape

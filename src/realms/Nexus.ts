@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
-import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
+import { nexusArchitecture } from './NexusArchitecture';
+import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
 import { Realm, InfoCard, FrameCtx } from '../engine/Realm';
 import { makeSkyDome, makeMotes, Weather } from '../engine/fx';
 import { obsidian, darkMetal, applyPBR } from '../engine/textures';
@@ -29,7 +30,7 @@ export class Nexus extends Realm {
   arrivalPitch = 0.16;
 
   protected build() {
-    this.look = { exposure: 1.0, bloom: [0.16, 0.35, 1.5], contrast: 1.12, saturation: 0.9, shadows: '#0b1220', highlights: '#f1e8dc', vignette: 0.22, godRays: 0 };
+    this.look = { exposure: 1.0, bloom: [0.08, 0.28, 2.2], contrast: 1.02, saturation: 1.0, shadows: '#0b1220', highlights: '#f1e8dc', vignette: 0.22, godRays: 0 };
     this.scene.fog = new THREE.FogExp2('#07061a', 0.006);
     const u = this.sky.uniforms;
     u.uTop.value.set('#010106'); u.uHorizon.value.set('#0c0a22'); u.uBottom.value.set('#010104');
@@ -42,7 +43,7 @@ export class Nexus extends Realm {
     key.position.set(0, 10, -4);
     const rimL = new THREE.SpotLight('#5ad8ff', 220, 90, 0.45, 0.6, 1.6);
     rimL.position.set(-30, 30, 20);
-    rimL.castShadow = QUALITY.shadows;
+    rimL.castShadow = false;
     rimL.shadow.mapSize.set(QUALITY.shadowMap, QUALITY.shadowMap);
     rimL.shadow.normalBias = 0.025;
     rimL.shadow.bias = -0.0001;
@@ -52,39 +53,20 @@ export class Nexus extends Realm {
 
     this.metal = applyPBR(new THREE.MeshStandardMaterial({ color: '#a6adb8', metalness: 0.78, roughness: 0.62 }), darkMetal(), 1, 0.3);
 
-    // Polished obsidian floor: a true planar reflection under a glossy, veined stone layer.
-    if (QUALITY.reflections) {
-      const pr = Math.min(window.devicePixelRatio || 1, 1.5);
-      const mirror = new Reflector(new THREE.CircleGeometry(18.4, 96), { textureWidth: Math.floor(innerWidth * pr * 0.6), textureHeight: Math.floor(innerHeight * pr * 0.6), color: 0x8a8a9a, clipBias: 0.003 });
-      mirror.rotation.x = -Math.PI / 2;
-      mirror.position.y = -0.02;
-      this.scene.add(mirror);
-    }
-    const stone = applyPBR(new THREE.MeshStandardMaterial({ color: '#ffffff', metalness: 0.1, roughness: 1, transparent: true, opacity: QUALITY.reflections ? 0.72 : 1 }), obsidian(), 3, 0.4);
-    const slab = new THREE.Mesh(new THREE.CircleGeometry(18.4, 96), stone);
-    slab.rotation.x = -Math.PI / 2;
-    slab.receiveShadow = true;
-    this.scene.add(slab);
-    // Bevelled basalt paving: real thickness, joins and reflected edge highlights.
-    const hex = new THREE.Shape();
-    for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; if (!i) hex.moveTo(Math.cos(a), Math.sin(a)); else hex.lineTo(Math.cos(a), Math.sin(a)); }
-    hex.closePath();
-    const pavingGeometry = new THREE.ExtrudeGeometry(hex, { depth: .13, bevelEnabled: true, bevelThickness: .025, bevelSize: .025, bevelSegments: 2, steps: 1 });
-    pavingGeometry.rotateX(-Math.PI / 2);
-    const pavingMaterial = new THREE.MeshStandardMaterial({ color: '#303238', roughness: .44, metalness: .15 });
-    const positions: [number, number][] = [];
-    for (let x = -12; x <= 12; x++) for (let z = -12; z <= 12; z++) {
-      const px = x * 1.54, pz = (z + (Math.abs(x) % 2) * .5) * 1.78;
-      if (Math.hypot(px, pz) < 17.2) positions.push([px, pz]);
-    }
-    const paving = new THREE.InstancedMesh(pavingGeometry, pavingMaterial, positions.length), transform = new THREE.Matrix4();
-    positions.forEach(([x, z], i) => { transform.makeTranslation(x, -.14, z); paving.setMatrixAt(i, transform); });
-    paving.receiveShadow = paving.castShadow = true; this.scene.add(paving);
+    this.scene.add(nexusArchitecture());
+    RectAreaLightUniformsLib.init();
+    const softbox = new THREE.RectAreaLight('#fff0da', 4, 18, 18);
+    softbox.position.set(0, 19, 3); softbox.lookAt(0, 0, 0); this.scene.add(softbox);
+    const sunlight = new THREE.DirectionalLight('#fff0dc', 3.1);
+    sunlight.position.set(-12, 24, 15); sunlight.castShadow = QUALITY.shadows;
+    sunlight.shadow.mapSize.set(QUALITY.shadowMap, QUALITY.shadowMap);
+    Object.assign(sunlight.shadow.camera, {left:-26,right:26,top:26,bottom:-26,near:1,far:90});
+    sunlight.shadow.normalBias=.025; sunlight.shadow.bias=-.00015;
+    this.scene.add(sunlight, sunlight.target);
     void assets.init().then(async () => {
-      assets.applyTo(pavingMaterial, 'mossy_rock', 1, .12);
-      this.metal.color.set('#827b70'); this.metal.metalness = .8; this.metal.roughness = .45;
-      const environment = await assets.hdri('moonless_golf');
-      if (environment) { this.envTexture = environment.texture; this.envDirty = true; }
+      this.metal.color.set('#aaa197'); this.metal.metalness=.58; this.metal.roughness=.4;
+      const environment=await assets.hdri('kloppenheim_06_puresky');
+      if(environment){this.envTexture=environment.texture;this.envDirty=true;this.scene.environmentIntensity=.65;}
     });
     this.floorMat = new THREE.ShaderMaterial({
       uniforms: { uTime: { value: 0 } },
@@ -159,33 +141,6 @@ export class Nexus extends Realm {
     pedGlow.rotation.x = Math.PI / 2;
     pedGlow.position.set(0, 0.61, -4);
     this.scene.add(ped, pedGlow);
-
-    // Colonnade fading into the void
-    const colG = new THREE.CylinderGeometry(0.7, 0.9, 46, 12);
-    const col = new THREE.InstancedMesh(colG, this.metal, 24);
-    const strip = new THREE.InstancedMesh(new THREE.BoxGeometry(0.08, 40, 0.08), new THREE.MeshBasicMaterial({ color: '#7a6bff' }), 24);
-    const m4 = new THREE.Matrix4();
-    for (let i = 0; i < 24; i++) {
-      const a = (i / 24) * Math.PI * 2;
-      const r = 34;
-      m4.makeTranslation(Math.cos(a) * r, 10, Math.sin(a) * r);
-      col.setMatrixAt(i, m4);
-      m4.makeTranslation(Math.cos(a) * (r - 0.75), 10, Math.sin(a) * (r - 0.75));
-      strip.setMatrixAt(i, m4);
-    }
-    col.castShadow = true;
-    this.scene.add(col, strip);
-
-    // Megastructure rings orbiting far away
-    for (let i = 0; i < 3; i++) {
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(120 + i * 70, 2.5 + i, 12, 200), this.metal);
-      ring.rotation.set(1.2 + i * 0.35, i * 0.8, 0.3 * i);
-      const band = new THREE.Mesh(new THREE.TorusGeometry(120 + i * 70, 0.35, 6, 300), new THREE.MeshBasicMaterial({ color: i === 1 ? '#ffb27a' : '#7df9ff', fog: false }));
-      ring.add(band);
-      band.position.z = 2 + i;
-      this.rings.push(ring);
-      this.scene.add(ring);
-    }
 
     // Floating crystal shards (refractive look via physical material + env reflections)
     const shardGeo = new THREE.OctahedronGeometry(0.4, 0);
@@ -315,14 +270,14 @@ export class Nexus extends Realm {
 
   protected applyEnv(e: Env) {
     const u = this.sky.uniforms;
-    u.uTintAmt.value = e.skyColor ? 0.55 : 0;
+    u.uTintAmt.value = e.skyColor ? 0.24 : 0;
     if (e.skyColor) u.uTint.value.set(e.skyColor);
     u.uAurora.value = e.weather === 'aurora' ? 1 : 0;
     this.weather.set(e.weather);
     (this.scene.fog as THREE.FogExp2).density = 0.003 + e.fog * 0.025;
     const bright = e.timeOfDay === 'day' ? 1 : e.timeOfDay === 'dawn' ? 0.6 : 0.3;
-    u.uHorizon.value.set(e.timeOfDay === 'day' ? '#2a2a6a' : e.timeOfDay === 'dawn' ? '#3a1e4a' : '#0c0a22');
-    this.amb.intensity = 0.25 + bright * 0.5;
+    u.uHorizon.value.set(e.timeOfDay === 'day' ? '#141c2a' : e.timeOfDay === 'dawn' ? '#261f2d' : '#0c0a22');
+    this.amb.color.set('#bed1e7'); this.amb.groundColor.set('#554d40'); this.amb.intensity = 0.28 + bright * 0.22;
     this.envDirty = true;
   }
 

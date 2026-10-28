@@ -141,6 +141,13 @@ export class CameraRig {
       this.followRadius = distance;
       this.fly = { from: this.target.clone(), to: point.clone(), look: point.clone(), t: 0, dur: 1.4, fromYaw: this.radius, fromPitch: 0 };
     } else {
+      if(this.mode==='fly') {
+        const direction=this.pos.clone().sub(point);
+        if(direction.lengthSq()<.0001)direction.set(0,.2,1);
+        const stop=point.clone().addScaledVector(direction.normalize(),distance);
+        this.fly={from:this.pos.clone(),to:stop,look:point.clone(),t:0,dur:1.4,fromYaw:this.yaw,fromPitch:this.pitch};
+        return;
+      }
       const dir = point.clone().sub(this.pos).setY(0);
       const d = dir.length();
       const stop = this.pos.clone().add(dir.normalize().multiplyScalar(Math.max(0, d - distance)));

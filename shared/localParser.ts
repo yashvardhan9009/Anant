@@ -197,6 +197,12 @@ export function parseIntent(input: string, world: WorldState): ParseOutput {
     if (/(let go|drop it|release (it|the)|put it down)/.test(t)) { push({ op: 'cosmos_grab', release: true }); continue; }
     const grab = t.match(/(?:grab|pick up|hold|let me (?:grab|hold|take)|take hold of|catch)\s+(?:the\s+)?(sun|mercury|venus|earth|mars|jupiter|saturn|uranus|neptune|star a|star b)\b/);
     if (grab && !/(large|big|tall) enough|make me|in my hands?/.test(t)) { ensureRealm('cosmos'); push({ op: 'cosmos_grab', target: grab[1] }); continue; }
+    const encounter=t.match(/(?:bring|move|put|place|take)\s+(?:the\s+)?(mercury|venus|earth|mars|jupiter|saturn|uranus|neptune)\b.*?(?:near|toward|towards|beside|next to|closer to|at)\s+(?:the\s+)?(?:black\s*hole)/);
+    if(encounter) { ensureRealm('cosmos'); const distance=t.match(/(\d+(?:\.\d+)?)\s*(?:r_s|rs|schwarzschild radii)/);
+      push({op:'cosmos_black_hole',show:true,companion:encounter[1],distance_rs:distance?Math.max(4,Math.min(80,+distance[1])):22});continue; }
+    if(world.cosmos.blackHoleCompanion && /(?:closer|nearer|farther|further)\b/.test(t) && /(?:earth|planet|it|black\s*hole)/.test(t)) {
+      ensureRealm('cosmos');push({op:'cosmos_black_hole',show:true,distance_rs:Math.max(4,Math.min(80,world.cosmos.blackHoleCompanion.distanceRs*(/farther|further/.test(t)?1.4:.7)))});continue;
+    }
     const moveT = t.match(/move (?:the\s+)?(\w+) (?:closer to|toward|towards|near) (?:the\s+)?(\w+)/);
     if (moveT && PLANET_NAMES.test(` ${moveT[1]} `)) { ensureRealm('cosmos'); push({ op: 'cosmos_move_body', target: moveT[1], toward: moveT[2], fraction: 0.4 }); continue; }
     const orbitT = t.match(/(?:put|move|place) (?:the\s+)?(\w+) (?:in|into|on) (?:an? )?(?:different |new |wider |circular )?orbit(?: at (\d+(?:\.\d+)?) ?au)?/);

@@ -1,9 +1,11 @@
 /**
- * Procedural generators for every spawnable ObjectKind. No external assets:
- * everything is built from primitives, so any supported request maps to a real mesh.
+ * Generators for every spawnable ObjectKind. Authored assets are streamed where available:
+ * every supported object maps to real geometry, with cancellable asset loading.
  */
 import * as THREE from 'three';
 import type { ObjectKind } from '../../shared/commands';
+import { buildDragon } from './Dragon';
+import { assets } from './assets';
 
 export interface Built {
   root: THREE.Group;
@@ -13,10 +15,12 @@ export interface Built {
   animate?: (t: number, dt: number) => void;
   /** half-height used for ground contact */
   base: number;
+  ready?: Promise<void>;
+  dispose?: () => void;
 }
 
 const std = (color: string | number, opts: Partial<THREE.MeshStandardMaterialParameters> = {}) =>
-  new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0.05, flatShading: true, ...opts });
+  new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0, flatShading: false, ...opts });
 
 function rng(seed: number) {
   return () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
@@ -48,6 +52,7 @@ function mesh(g: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0) {
 function castle(color: string): Built {
   const root = new THREE.Group();
   const stone = std(color);
+  assets.applyTo(stone, 'castle_brick_01', 2, .6); stone.color.set(color);
   const dark = std('#6b6258');
   const roof = std('#3b2f5c');
   const glowWin = new THREE.MeshBasicMaterial({ color: '#ffc46b' });
@@ -81,10 +86,11 @@ function floatingIsland(color: string): Built {
   under.rotation.x = Math.PI;
   root.add(under);
   root.add(mesh(roughen(new THREE.CylinderGeometry(3.1, 3, 0.5, 12, 1), 0.15, 3), grass, 0, 0.25, 0));
+  const childTrees:Built[]=[];
   const r = rng(11);
   for (let i = 0; i < 6; i++) {
     const a = r() * Math.PI * 2, d = 0.6 + r() * 1.8;
-    const tr = tree('#2f7a46', 0.45 + r() * 0.3).root;
+    const child=tree('#2f7a46', 0.45+r()*.3);childTrees.push(child);const tr=child.root;
     tr.position.set(Math.cos(a) * d, 0.5, Math.sin(a) * d);
     root.add(tr);
   }
@@ -104,7 +110,7 @@ function floatingIsland(color: string): Built {
   const water = new THREE.Points(g, new THREE.PointsMaterial({ color: '#9fe8ff', size: 0.12, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false }));
   root.add(water);
   return {
-    root, tint: [grass], base: -4,
+    root, tint: [grass], base: -4, dispose:()=>childTrees.forEach(child=>child.dispose?.()),
     animate: (t) => {
       for (let i = 0; i < N; i++) {
         const ph = (t * 0.35 + seeds[i]) % 1;
@@ -153,12 +159,39 @@ export function tree(color: string, s = 1): Built {
   const leaf = std(color);
   root.add(mesh(new THREE.CylinderGeometry(0.12 * s, 0.18 * s, 1.2 * s, 6), std('#5a3a22'), 0, 0.6 * s, 0));
   for (let i = 0; i < 3; i++) root.add(mesh(roughen(new THREE.ConeGeometry((1 - i * 0.22) * s, 1.3 * s, 7), 0.08 * s, i + 2), leaf, 0, (1.3 + i * 0.6) * s, 0));
-  return { root, tint: [leaf], base: 0 };
+  return upgradeProp({ root, tint: [leaf], base: 0 },'island_tree_02',6*s,color);
+}
+
+/** Replace the fallback only after the entire streamed prop is ready. Geometry
+ * and materials are owned by the instance; the library keeps shared textures. */
+function upgradeProp(built:Built,id:string,height:number,color?:string):Built {
+  let closed=false;
+  built.ready=assets.init().then(async()=>{
+    const model=await assets.clone(id);if(!model||closed)return;
+    const box=new THREE.Box3().setFromObject(model),size=box.getSize(new THREE.Vector3());
+    model.scale.multiplyScalar(height/Math.max(.001,size.y));model.position.y-=box.min.y*height/size.y;
+    model.traverse(object=>{
+      object.userData.objectId=built.root.userData.objectId;
+      const mesh=object as THREE.Mesh;if(!mesh.isMesh)return;
+      mesh.geometry=mesh.geometry.clone();
+      const own=(source:THREE.Material)=>{
+        const material=source.clone() as THREE.MeshStandardMaterial;
+        if(material.alphaTest>0||material.transparent){material.alphaTest=.35;material.alphaToCoverage=true;material.transparent=false;material.side=THREE.DoubleSide;}
+        if(color && material.map)material.color.lerp(new THREE.Color(color),.12);
+        built.tint.push(material);return material;
+      };
+      mesh.material=Array.isArray(mesh.material)?mesh.material.map(own):own(mesh.material);
+    });
+    built.root.traverse(object=>{const mesh=object as THREE.Mesh;if(!mesh.isMesh)return;mesh.geometry.dispose();for(const material of Array.isArray(mesh.material)?mesh.material:[mesh.material])material.dispose();});
+    built.root.clear();built.root.add(model);built.root.userData.assetLoaded=true;
+  }).catch(error=>console.warn('Object asset failed',id,error));
+  const dispose=built.dispose;built.dispose=()=>{closed=true;dispose?.();};return built;
 }
 
 function tower(color: string): Built {
   const root = new THREE.Group();
   const stone = std(color);
+  assets.applyTo(stone, 'stone_wall_04', 3, .5); stone.color.set(color);
   root.add(mesh(roughen(new THREE.CylinderGeometry(0.9, 1.2, 6, 10, 4), 0.06, 4), stone, 0, 3, 0));
   root.add(mesh(new THREE.ConeGeometry(1.3, 2, 10), std('#2e2250'), 0, 7, 0));
   const win = new THREE.MeshBasicMaterial({ color: '#9fe8ff' });
@@ -187,58 +220,6 @@ function orb(color: string): Built {
   return { root, tint: [m], base: 0, animate: (t) => { shell.rotation.y = t * 0.6; shell.rotation.x = t * 0.3; } };
 }
 
-function dragon(color: string): Built {
-  const root = new THREE.Group();
-  const scale = std(color, { roughness: 0.6, metalness: 0.2 });
-  const belly = std('#e0b070');
-  const body = new THREE.Group();
-  root.add(body);
-  const seg: THREE.Mesh[] = [];
-  const N = 14;
-  for (let i = 0; i < N; i++) {
-    const r = i < 3 ? 0.35 + i * 0.12 : Math.max(0.08, 0.6 - (i - 3) * 0.05);
-    const m = mesh(new THREE.SphereGeometry(r, 8, 6), i % 3 === 0 ? belly : scale);
-    seg.push(m);
-    body.add(m);
-  }
-  const head = new THREE.Group();
-  head.add(mesh(new THREE.ConeGeometry(0.3, 0.9, 6), scale, 0, 0, 0.4).rotateX(Math.PI / 2));
-  for (const s of [-1, 1]) {
-    head.add(mesh(new THREE.ConeGeometry(0.06, 0.5, 5), std('#ddd2b0'), s * 0.15, 0.25, -0.1).rotateX(-0.6));
-    head.add(mesh(new THREE.SphereGeometry(0.06, 6, 6), new THREE.MeshBasicMaterial({ color: '#ffdd33' }), s * 0.14, 0.08, 0.35));
-  }
-  body.add(head);
-  const wingGeo = new THREE.BufferGeometry();
-  wingGeo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 2.6, 0.4, -0.6, 2.2, 0, 0.8, 0, 0, 0, 2.2, 0, 0.8, 1.2, -0.1, 1.3], 3));
-  wingGeo.computeVertexNormals();
-  const wingMat = new THREE.MeshStandardMaterial({ color, side: THREE.DoubleSide, roughness: 0.7, transparent: true, opacity: 0.92 });
-  const wings = [-1, 1].map((s) => {
-    const w = new THREE.Mesh(wingGeo, wingMat);
-    w.scale.x = s;
-    w.castShadow = true;
-    body.add(w);
-    return w;
-  });
-  const fire = new THREE.PointLight('#ff7a2b', 0, 8, 2);
-  head.add(fire);
-  return {
-    root, tint: [scale, wingMat], base: 0,
-    animate: (t) => {
-      // Sinuous spine
-      for (let i = 0; i < N; i++) {
-        const u = i * 0.32;
-        seg[i].position.set(Math.sin(t * 2 - u) * 0.25 * (i / N), 1.6 + Math.sin(t * 2.4 - u * 0.8) * 0.15, -u + 1.2);
-      }
-      head.position.copy(seg[0].position).add(new THREE.Vector3(0, 0.15, 0.35));
-      const flap = Math.sin(t * 4) * 0.7;
-      wings[0].position.copy(seg[3].position).add(new THREE.Vector3(0.2, 0.2, 0));
-      wings[1].position.copy(seg[3].position).add(new THREE.Vector3(-0.2, 0.2, 0));
-      wings[0].rotation.z = flap;
-      wings[1].rotation.z = -flap;
-      fire.intensity = Math.max(0, Math.sin(t * 0.7)) > 0.95 ? 6 : 0;
-    },
-  };
-}
 
 function monolith(color: string): Built {
   const root = new THREE.Group();
@@ -276,6 +257,7 @@ function statue(color: string): Built {
 function bridge(color: string): Built {
   const root = new THREE.Group();
   const wood = std(color);
+  assets.applyTo(wood, 'weathered_planks', 1, .45); wood.color.set(color);
   for (let i = 0; i < 14; i++) {
     const u = i / 13 - 0.5;
     const p = mesh(new THREE.BoxGeometry(0.5, 0.12, 1.6), wood, u * 7, 0.6 + Math.cos(u * Math.PI) * 0.9, 0);
@@ -294,7 +276,7 @@ export function buildObject(kind: ObjectKind, color: string): Built {
     case 'tree': return tree(color);
     case 'tower': return tower(color);
     case 'orb': return orb(color);
-    case 'dragon': return dragon(color);
+    case 'dragon': return buildDragon(color);
     case 'monolith': return monolith(color);
     case 'lantern': return lantern(color);
     case 'statue': return statue(color);

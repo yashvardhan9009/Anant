@@ -9,6 +9,7 @@ export interface LlmConfig {
   baseUrl: string;
   model?: string;
   timeoutMs: number;
+  keepAlive?: string | number;
 }
 
 export type LlmErrorKind = 'no-credentials' | 'timeout' | 'http' | 'network' | 'parse' | 'no-model';
@@ -36,6 +37,7 @@ export function configFromEnv(env = process.env): LlmConfig {
     baseUrl: (local ? env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434' : env.NEBIUS_BASE_URL || 'https://api.tokenfactory.nebius.com/v1').replace(/\/+$/, ''),
     model: (local ? env.OLLAMA_MODEL : env.ANANT_MODEL) || undefined,
     timeoutMs: Number(env.ANANT_LLM_TIMEOUT_MS || (local ? 120000 : 15000)),
+    keepAlive: env.OLLAMA_KEEP_ALIVE || 0,
   };
 }
 
@@ -111,7 +113,7 @@ export class NebiusClient {
       const json = await this.request(local ? '/api/chat' : '/chat/completions', {
         method: 'POST',
         signal:opts.signal,
-        body: JSON.stringify(local ? {model, messages: msgs, stream:false, think:false, format:opts.schema ?? 'json', keep_alive:'10m', options:{num_ctx:opts.schema?8192:4096,num_predict:opts.maxTokens ?? 700, temperature:opts.temperature ?? .4}} : { model, messages: msgs, max_tokens: opts.maxTokens ?? 700, temperature: opts.temperature ?? 0.4 }),
+        body: JSON.stringify(local ? {model, messages: msgs, stream:false, think:false, format:opts.schema ?? 'json', keep_alive:this.cfg.keepAlive ?? 0, options:{num_ctx:opts.schema?8192:4096,num_predict:opts.maxTokens ?? 700, temperature:opts.temperature ?? .4}} : { model, messages: msgs, max_tokens: opts.maxTokens ?? 700, temperature: opts.temperature ?? 0.4 }),
       });
       const text = local ? json?.message?.content : json?.choices?.[0]?.message?.content;
       if (typeof text !== 'string') throw new LlmError('parse', 'no message content in completion');

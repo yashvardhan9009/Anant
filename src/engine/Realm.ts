@@ -123,7 +123,7 @@ export abstract class Realm {
   focusPoint(kind: string, id: string): THREE.Vector3 | undefined {
     if (kind === 'object') {
       const e = this.objects.get(id);
-      if (e) return new THREE.Box3().setFromObject(e.holder).getCenter(new THREE.Vector3());
+      if (e) return new THREE.Box3().setFromObject(e.holder, true).getCenter(new THREE.Vector3());
     }
     return undefined;
   }

@@ -24,6 +24,9 @@ export class ObjectLayer {
   entries = new Map<string, Entry>();
   selectedId?: string;
   private ring: THREE.Mesh;
+  private selectionBounds=new THREE.Box3();
+  private selectionBoundsAt=-Infinity;
+  private boundsFor?:string;
   /** object id currently being dragged by the user (physics paused for it) */
   grabbedId?: string;
   onRest?: (id: string, pos: [number, number, number]) => void;
@@ -60,6 +63,10 @@ export class ObjectLayer {
         e = { obj: o, built, holder, vel: new THREE.Vector3(), moving: false, spawnT: t, bobPhase: Math.random() * 6.28, colorKey };
         holder.position.set(...o.position);
         this.entries.set(o.id, e);
+        void built.ready?.then(()=>{
+          if(this.entries.get(o.id)?.built!==built)return;
+          if(o.glow)for(const material of built.tint){material.emissive.set(o.color);material.emissiveIntensity=1.2;}
+        });
         this.onSpawnFx?.(holder.position.clone(), o.color);
         // Non-floating objects spawned in the air fall under gravity.
         if (!o.floating && o.position[1] > this.groundY(o.position[0], o.position[2]) + 0.05) e.moving = true;
@@ -82,6 +89,7 @@ export class ObjectLayer {
     const e = this.entries.get(id);
     if (!e) return;
     this.group.remove(e.holder);
+    e.built.dispose?.();
     e.holder.traverse((c: any) => {
       c.geometry?.dispose?.();
       if (c.material) (Array.isArray(c.material) ? c.material : [c.material]).forEach((m: any) => m.dispose());
@@ -147,9 +155,12 @@ export class ObjectLayer {
       if (e.vel.lengthSq() < 0.004 && (e.holder.position.y <= gy + 0.01 || gravity === 0)) this.settle(id, e);
     }
     const sel = this.selectedId ? this.entries.get(this.selectedId) : undefined;
-    this.ring.visible = !!sel;
+    this.ring.visible = !!sel && (typeof document==='undefined'||!document.body.classList.contains('cinema'));
     if (sel) {
-      const box = new THREE.Box3().setFromObject(sel.built.root);
+      if(this.boundsFor!==this.selectedId || t-this.selectionBoundsAt>.18) {
+        this.selectionBounds.setFromObject(sel.built.root,true);this.selectionBoundsAt=t;this.boundsFor=this.selectedId;
+      }
+      const box = this.selectionBounds;
       const size = box.getSize(new THREE.Vector3());
       const r = Math.max(size.x, size.z) * 0.6 + 0.3;
       this.ring.scale.setScalar(r);

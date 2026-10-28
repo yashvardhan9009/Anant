@@ -104,11 +104,13 @@ export class Cosmos extends Realm {
     // Black hole: a sphere around the camera; the fragment shader integrates
     // photon paths in the Schwarzschild metric (units: r_s = 1).
     this.bhMat = new THREE.ShaderMaterial({
-      uniforms: { uCam: { value: new THREE.Vector3() }, uTime: { value: 0 }, uFade: { value: 0 }, uScale: { value: 0.85 }, uSky: { value: assets.space('8k_stars_milky_way.jpg') }, uHasSky: { value: assets.space('8k_stars_milky_way.jpg') ? 1 : 0 } },
+      uniforms: { uCam: { value: new THREE.Vector3() }, uTime: { value: 0 }, uFade: { value: 0 }, uScale: { value: 0.85 }, uSky: { value: assets.space('8k_stars_milky_way.jpg') }, uHasSky: { value: assets.space('8k_stars_milky_way.jpg') ? 1 : 0 },
+        uPlanet:{value:assets.space('8k_earth_daymap.jpg')},uPlanetOn:{value:0},uPlanetPos:{value:new THREE.Vector3()},uPlanetColor:{value:new THREE.Color('#ffffff')} },
       side: THREE.BackSide, depthWrite: false, depthTest: false, transparent: true,
       vertexShader: /* glsl */ `varying vec3 vW; void main(){ vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; gl_Position.z = gl_Position.w*0.999; }`,
       fragmentShader: /* glsl */ `
         uniform vec3 uCam; uniform float uTime, uFade, uScale, uHasSky; uniform sampler2D uSky; varying vec3 vW;
+        uniform sampler2D uPlanet; uniform float uPlanetOn; uniform vec3 uPlanetPos,uPlanetColor;
         ${NOISE_GLSL}
         ${SKY_STRETCH}
         vec3 stars(vec3 d){
@@ -140,6 +142,26 @@ export class Cosmos extends Realm {
             vec3 pPrev = p;
             // null geodesic in Schwarzschild spacetime: d²x/dλ² = −(3/2) h² x / r⁵
             v += -1.5*h2*p/pow(r, 5.0)*dt; p += v*dt;
+            if(uPlanetOn>.5) {
+              // Intersect each bent photon segment with the companion. Its
+              // apparent shape follows the same ray integration as the sky.
+              vec3 segment=p-pPrev;float lengthSegment=length(segment);
+              vec3 direction=segment/max(lengthSegment,.00001),offset=pPrev-uPlanetPos;
+              float b=dot(offset,direction),c=dot(offset,offset)-.55*.55,disc=b*b-c;
+              if(disc>=0.) {
+                float hit=-b-sqrt(disc);
+                if(hit>=0.&&hit<=lengthSegment) {
+                  vec3 n=normalize(pPrev+direction*hit-uPlanetPos);
+                  vec2 uv=vec2(atan(n.z,n.x)*.15915494+.5-uTime*.004,asin(clamp(n.y,-1.,1.))*.31830989+.5);
+                  vec3 surface=texture2D(uPlanet,uv).rgb*uPlanetColor;
+                  float light=max(0.,dot(n,normalize(-uPlanetPos+vec3(0.,8.,0.))));
+                  vec3 planet=surface*(.1+light*2.2);
+                  float atmosphere=pow(1.-max(0.,dot(n,-direction)),3.);
+                  planet+=vec3(.15,.32,.5)*atmosphere*(.15+light*.7);
+                  col+=(1.-alpha)*planet;alpha=1.;captured=true;break;
+                }
+              }
+            }
             if (pPrev.y*p.y < 0.0) {
               vec3 q = mix(pPrev, p, pPrev.y/(pPrev.y - p.y));
               float rq = length(q.xz);
@@ -432,6 +454,14 @@ export class Cosmos extends Realm {
       }
     }
     this.bhOn = c.blackHole;
+    const companion=c.blackHoleCompanion;
+    if(this.bhMat)this.bhMat.uniforms.uPlanetOn.value=companion?1:0;
+    if(companion && this.bhMat) {
+      const d=companion.distanceRs;
+      this.bhMat.uniforms.uPlanetPos.value.set(d*.075,d*.035,d*.9966);
+      const maps:Record<string,string>={earth:'8k_earth_daymap.jpg',mars:'2k_mars.jpg',venus:'2k_venus_atmosphere.jpg',mercury:'2k_mercury.jpg',jupiter:'2k_jupiter.jpg',saturn:'2k_saturn.jpg',uranus:'2k_uranus.jpg',neptune:'2k_neptune.jpg'};
+      this.bhMat.uniforms.uPlanet.value=assets.space(maps[companion.bodyId]??'8k_earth_daymap.jpg');
+    }
   }
 
   /** Copy live positions/velocities back into a state's body list (for saving / adding bodies). */
@@ -659,11 +689,12 @@ export class Cosmos extends Realm {
       return {
         title: 'Schwarzschild Black Hole',
         mode: 'SCIENTIFIC REALITY',
-        subtitle: 'Light passing near the hole is bent by spacetime curvature. The dark disc is the shadow: rays that fall in never come back.',
+        subtitle: s.cosmos.blackHoleCompanion ? `${s.cosmos.bodies.find(b=>b.id===s.cosmos.blackHoleCompanion?.bodyId)?.name} near a black hole · illustrative encounter at ${s.cosmos.blackHoleCompanion.distanceRs} r_s. Planet size enlarged for visibility.` : 'Light passing near the hole is bent by spacetime curvature. The dark disc is the shadow: rays that fall in never come back.',
         accuracy: [
           { tag: 'SIMULATION', text: 'Each pixel integrates a photon path through the Schwarzschild metric (null geodesic, d²x/dλ² = −1.5 h² x / r⁵), so lensing, the shadow and the warped far side of the disk are computed, not painted.' },
           { tag: 'MODEL', text: 'Non-rotating, uncharged hole. Thin disk from the ISCO (3 r_s) outward, temperature ∝ r^−3/4.' },
           { tag: 'ARTISTIC', text: 'Disk turbulence, colours, brightness and Doppler beaming are approximations; there is no gravitational redshift or time dilation in the colours.' },
+          ...(s.cosmos.blackHoleCompanion ? [{tag:'ARTISTIC' as const,text:'The companion is enlarged to 0.55 r_s for visibility. Its surface is intersected along the bent rays; illumination and atmosphere are illustrative. No orbital evolution, tidal destruction or habitability simulation.'}] : []),
         ],
         stats: [{ label: 'Shadow radius', value: '≈ 2.6 r_s' }, { label: 'Photon sphere', value: '1.5 r_s' }, { label: 'ISCO', value: '3 r_s' }],
       };

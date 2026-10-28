@@ -31,6 +31,7 @@ export const ScenePlanSchema = z.object({
     .array(
       z.object({
         kind: z.enum([
+          "dragon",
           "tree",
           "rock",
           "house",
@@ -97,6 +98,7 @@ export function settleScene(plan: ScenePlan): ScenePlan {
     pyramid: [2, 2, 2],
     firepit: [1.6, 0.55, 1.6],
     basin: [2, 0.35, 2],
+    dragon: [9.5, 5, 8],
   };
   const settled: ScenePlan["objects"] = [];
   for (const item of [...next.objects].sort(
@@ -176,6 +178,7 @@ export interface ResearchSource {
   extract: string;
 }
 export interface ExperienceReply {
+  limitations?: string[];
   context?: { mode: "imagine" | "history"; place: string; period: string };
   plan: ScenePlan;
   source: "ai" | "template";
@@ -187,6 +190,7 @@ export interface ExperienceReply {
   prompt: string;
 }
 export const SavedExperienceSchema = z.object({
+  limitations: z.array(z.string().max(400)).max(16).optional(),
   context: z
     .object({
       mode: z.enum(["imagine", "history"]),
@@ -215,6 +219,10 @@ export const SavedExperienceSchema = z.object({
   prompt: z.string().max(1600),
 });
 export function isExperienceIntent(text: string) {
+  // Keep established object commands in their current realm, even when the
+  // placement mentions a village or garden. Whole-scene requests still compose.
+  if (/^(create|build|generate|make|summon)\s+(?:(?:an?|the|huge|large|giant|small|tiny|glowing|red|blue|green|golden|stone|wooden)\s+)*(?:floating\s+island|castle|dragon|sword|orb|tower|tree|monolith|lantern|statue|bridge|crystal)\b/i.test(text)) return false;
+  if (/^(create|build|generate|make)\b.*\b(garden|forest|ocean|city|civilization|cathedral|battlefield|palace|hall|village|world|environment|droplet|human eye|heat death)\b/i.test(text)) return true;
   return /\b(spell|fireball|waterbend|time travel|reconstruct|reconstruction)\b|^(imagine|experience|create a world|build a world)|^(cast|use|summon) (a |an )?(fire|water|ice|lightning|vortex|portal|steam)\b|\b(see|show|visit|take me).*(the past|ancient|prehistoric|\d+\s*(years? ago|bc|bce|ad|ce))\b/i.test(
     text,
   );

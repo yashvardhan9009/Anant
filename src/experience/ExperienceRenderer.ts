@@ -19,6 +19,8 @@ import { Phenomenon } from "./Phenomena";
 import { Puddle } from "./Puddle";
 import { createTerrain } from "./Terrain";
 import { naturalFoliage, weatherStone } from "./NaturalMaterials";
+import { buildDragon } from '../engine/Dragon';
+import type { Built } from '../engine/objects';
 
 export class ExperienceRenderer {
   readonly scene = new T.Scene();
@@ -45,6 +47,7 @@ export class ExperienceRenderer {
   private phenomena: Phenomenon[] = [];
   private puddle?: Puddle;
   private moving: { node: T.Object3D; y: number; mode: string }[] = [];
+  private creatures:Built[]=[];
   private colliders: T.Box3[] = [];
   private sun = new T.DirectionalLight("#ffdbac", 3);
   private ambient = new T.HemisphereLight("#a7c7eb", "#454641", 1);
@@ -94,7 +97,7 @@ export class ExperienceRenderer {
 
   constructor(private host: HTMLElement) {
     this.renderer.setPixelRatio(
-      Math.min(devicePixelRatio, QUALITY.name === "cinematic" ? 1.4 : 1),
+      Math.min(devicePixelRatio, QUALITY.ultra ? 2 : QUALITY.cinematic ? 1.4 : 1),
     );
     this.renderer.toneMapping = T.AgXToneMapping;
     this.renderer.toneMappingExposure = 1;
@@ -110,7 +113,7 @@ export class ExperienceRenderer {
     this.rig.setFlight(new T.Vector3(0, 2.8, 12), 0, -0.03);
     this.sun.position.set(-30, 25, 15);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(QUALITY.shadowMap, QUALITY.shadowMap);
     Object.assign(this.sun.shadow.camera, {
       left: -35,
       right: 35,
@@ -509,6 +512,11 @@ export class ExperienceRenderer {
         group.add(house);
         break;
       }
+      case 'dragon': {
+        material.dispose();
+        const creature=buildDragon(item.color);this.creatures.push(creature);group.add(creature.root);
+        break;
+      }
       case "tree":
       case "firepit":
       case "rock": {
@@ -675,6 +683,7 @@ export class ExperienceRenderer {
         : 0;
     if (!this.frozen) {
       this.time += dt;
+      for(const creature of this.creatures)creature.animate?.(this.time,dt);
       for (const fx of this.phenomena) fx.update(this.time, dt, this.camera);
       for (const m of this.moving) {
         if (m.mode === "float")
@@ -698,6 +707,8 @@ export class ExperienceRenderer {
   private clear() {
     this.appearanceKey = "";
     this.rig.stopMotion();
+    for(const creature of this.creatures)creature.dispose?.();
+    this.creatures=[];
     for (const f of this.phenomena) f.dispose();
     this.phenomena = [];
     this.puddle?.dispose();

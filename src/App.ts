@@ -25,7 +25,7 @@ import { isExperienceIntent } from '../shared/experience';
 const LS_KEY = 'anant.world.v1';
 const ACTIVE_WORLD_KEY = 'anant.activeWorld.v1';
 /** Operations that change the world enough to deserve an undo step. */
-const UNDOABLE = new Set(['cosmos_move_body', 'cosmos_set_body', 'cosmos_add_body', 'cosmos_remove_body', 'cosmos_create_system', 'reset_system', 'set_gravity', 'spawn_object', 'delete_object', 'transform_object', 'set_object_property', 'set_environment', 'atom_set_orbital', 'atom_transition', 'cosmos_set_mode']);
+const UNDOABLE = new Set(['cosmos_black_hole', 'cosmos_move_body', 'cosmos_set_body', 'cosmos_add_body', 'cosmos_remove_body', 'cosmos_create_system', 'reset_system', 'set_gravity', 'spawn_object', 'delete_object', 'transform_object', 'set_object_property', 'set_environment', 'atom_set_orbital', 'atom_transition', 'cosmos_set_mode']);
 const JOURNEY: RealmId[] = ['atom', 'cosmos', 'village', 'nexus'];
 const REALM_COLOR: Record<RealmId, string> = { nexus: '#b388ff', atom: '#7df9ff', cosmos: '#ffd27d', village: '#ff9a6b', heavy: '#ff6bd5' };
 
@@ -229,6 +229,10 @@ export class App implements InputHost {
 
   /** Entering a realm: keep the observer's size where it makes sense, otherwise adopt the realm's natural scale. */
   private applyObserverFor(realm: RealmId) {
+    if(realm==='cosmos' && this.state.cosmos.blackHole) {
+      this.engine.rig.setOrbit(new THREE.Vector3(),new THREE.Vector3(-6,2.4,33));
+      this.hud.setObserver(this.state.observer?.size??1.7);return;
+    }
     const size = this.state.observer?.size ?? 1.7;
     const space = realm === 'cosmos' || realm === 'heavy';
     const natural = realm === 'atom' ? 1e-10 / this.state.atom.scale : space ? Math.max(size, 1.7) : 1.7;

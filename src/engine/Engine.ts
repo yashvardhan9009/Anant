@@ -180,7 +180,7 @@ export class Engine {
     } else if (kind === 'npc') this.rig.focusOn(pt, 3);
     else {
       const e = r.objects.get(id);
-      const size = e ? new THREE.Box3().setFromObject(e.holder).getSize(new THREE.Vector3()).length() : 4;
+      const size = e ? new THREE.Box3().setFromObject(e.holder, true).getSize(new THREE.Vector3()).length() : 4;
       this.rig.focusOn(pt, Math.max(4, size * 1.3));
     }
   }
@@ -327,6 +327,7 @@ export class Engine {
       pv.group.visible = true;
       if (!inView) continue;
       const dest = this.realms[pv.state.to];
+      dest.buildEnvironment(this.pmrem);
       const exit = this.state.portals.find((p) => p.id === pv.state.linkedPortalId);
       const exitPos = new THREE.Vector3(...(exit?.position ?? ARRIVAL[pv.state.to]));
       const exitYaw = exit?.yaw ?? Math.atan2(-exitPos.x, -exitPos.z);
@@ -347,7 +348,12 @@ export class Engine {
       const hidden: PortalView[] = [];
       for (const q of this.portals.values()) if (q.state.from === pv.state.to && q.group.visible) { q.group.visible = false; hidden.push(q); }
       this.renderer.setRenderTarget(pv.rt);
-      this.renderer.render(dest.scene, this.portalCam);
+      const updateShadows=this.renderer.shadowMap.autoUpdate;
+      let missingShadow=false;
+      dest.scene.traverse(object=>{const light=object as THREE.Light & {shadow?:THREE.LightShadow};if(light.isLight&&light.castShadow&&!light.shadow?.map)missingShadow=true;});
+      this.renderer.shadowMap.autoUpdate=missingShadow;
+      try { this.renderer.render(dest.scene, this.portalCam); }
+      finally { this.renderer.shadowMap.autoUpdate=updateShadows; }
       this.renderer.setRenderTarget(null);
       hidden.forEach((q) => (q.group.visible = true));
     }

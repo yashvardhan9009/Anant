@@ -399,6 +399,7 @@ export class Village extends Realm {
   private rockGroup?: THREE.Object3D;
   private terrain?: THREE.Mesh;
   private hdr?: { texture: THREE.DataTexture; sunDir: THREE.Vector3; horizon: THREE.Color; zenith: THREE.Color };
+  private dayHdr?: { texture: THREE.DataTexture; sunDir: THREE.Vector3; horizon: THREE.Color; zenith: THREE.Color };
   /** which real assets were loaded (shown in the reality card) */
   assetReport: string[] = [];
   assetsReady: Promise<void> = Promise.resolve();
@@ -443,6 +444,7 @@ export class Village extends Realm {
 
     // 2 — real dusk sky (HDRI) lighting the whole scene
     this.hdr = (await assets.hdri('kloppenheim_06_puresky')) ?? undefined;
+    this.dayHdr = (await assets.hdri('kloofendal_48d_partly_cloudy_puresky')) ?? undefined;
     if (this.hdr) {
       rep.push('HDRI sky: Kloppenheim 06 (dusk)');
       if (this.env) this.applyEnv(this.env);
@@ -813,22 +815,23 @@ export class Village extends Realm {
     if (e.weather === 'storm') fogC.multiplyScalar(0.5);
     // Real photographed sky (HDRI) for dawn/dusk/day when available: it becomes the
     // background AND the image-based light, and the key light follows its sun.
-    const useHdr = !!this.hdr && e.timeOfDay !== 'night' && !e.skyColor && e.weather !== 'storm';
+    const hdr=(e.timeOfDay==='day'?this.dayHdr:undefined)??this.hdr;
+    const useHdr = !!hdr && e.timeOfDay !== 'night' && !e.skyColor && e.weather !== 'storm';
     this.sky.mesh.visible = !useHdr;
-    this.scene.background = useHdr ? this.hdr!.texture : null;
-    this.envTexture = useHdr ? this.hdr!.texture : undefined;
+    this.scene.background = useHdr ? hdr!.texture : null;
+    this.envTexture = useHdr ? hdr!.texture : undefined;
     this.scene.environmentIntensity = useHdr ? 0.65 : 1;
     this.scene.backgroundIntensity = 0.9;
     if (useHdr) {
-      const d = this.hdr!.sunDir.clone();
+      const d = hdr!.sunDir.clone();
       if (d.y < 0.06) d.y = 0.06;
       d.normalize();
       this.sun.position.copy(d.clone().multiplyScalar(120));
       this.sunWorld = d.clone().multiplyScalar(800);
-      fogC.copy(this.hdr!.horizon);
+      fogC.copy(hdr!.horizon);
       const lum = fogC.r * 0.2126 + fogC.g * 0.7152 + fogC.b * 0.0722;
       fogC.multiplyScalar(Math.min(1, 0.16 / Math.max(1e-3, lum)));
-      const z = this.hdr!.zenith;
+      const z = hdr!.zenith;
       this.hemi.color.copy(z).multiplyScalar(1 / Math.max(1e-3, z.r, z.g, z.b));
       this.hemi.intensity = 0.12;
       this.sun.intensity = (e.timeOfDay === 'day' ? 5 : 6) * (e.weather === 'rain' ? 0.45 : 1);

@@ -409,5 +409,43 @@
     ],
     "license": "CC0 1.0",
     "source": "https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky"
+  },
+  "marble_01": {
+    "name": "Marble 01",
+    "type": "texture",
+    "authors": [
+      "Rob Tuytel"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/marble_01"
+  },
+  "granite_tile_02": {
+    "name": "Granite Tile 02",
+    "type": "texture",
+    "authors": [
+      "Charlotte Baglioni"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/granite_tile_02"
+  },
+  "concrete_floor_02": {
+    "name": "Concrete Floor 02",
+    "type": "texture",
+    "authors": [
+      "Rob Tuytel"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/concrete_floor_02"
+  },
+  "dragon_flight": {
+    "name": "Animated Dragon Three Motion Loops",
+    "type": "animated creature",
+    "authors": [
+      "LasquetiSpice"
+    ],
+    "license": "CC BY 4.0",
+    "source": "https://sketchfab.com/3d-models/animated-dragon-three-motion-loops-eca98cf6cd084c1596cecf716e110c29",
+    "download": "https://github.com/sceneview/sceneview/blob/main/samples/web-demo/site/models/animated_dragon.glb",
+    "modifications": "Converted specular/glossiness to metallic/roughness; WebP maps and lossless meshopt compression. Skeleton and authored animation retained. Runtime scale and colour tint."
   }
 }

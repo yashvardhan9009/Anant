@@ -146,6 +146,7 @@ export class ExperienceStudio {
     const brand = el("div", "experience-brand", "ANANT / REALITY STUDIO");
     const actions = el("div", "experience-actions");
     const evidence = el("button", "", "Scene notes");
+    evidence.dataset.sceneNotes='true';
     evidence.setAttribute("aria-expanded", "false");
     evidence.onclick = () => {
       this.details.hidden = !this.details.hidden;
@@ -526,6 +527,7 @@ export class ExperienceStudio {
       this.onSave(this.reply);
       this.refine.checked = true;
       this.status.textContent = `Created by ${data.model} in ${(data.latencyMs / 1000).toFixed(1)}s. Saved with this world.`;
+      if(data.limitations?.length)this.status.textContent+=` ${data.limitations.length} requested behaviours unavailable; see scene notes.`;
     } catch (error) {
       if (!this.closed && generation === this.generation)
         this.status.textContent =
@@ -604,6 +606,14 @@ export class ExperienceStudio {
         "Visual effects approximate phenomena; they are not full physical simulations. Geometry is assembled from a bounded set of shapes and assets.",
       ),
     );
+    if(this.reply.limitations?.length) {
+      this.details.hidden=false;
+      this.root.querySelector('[data-scene-notes]')?.setAttribute('aria-expanded','true');
+      this.detailsBody.append(el('h3','','Requested behaviours unavailable'));
+      const list=el('ul','experience-limitations');
+      for(const limitation of this.reply.limitations)list.append(el('li','',limitation));
+      this.detailsBody.append(list);
+    }
     if (this.reply.plan.reconstruction) {
       this.detailsBody.append(
         el("h3", "", this.reply.plan.reconstruction.period),

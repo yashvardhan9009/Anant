@@ -382,27 +382,30 @@ export class Ridges {
   layers: { mesh: THREE.Mesh; depth: number }[] = [];
   constructor(radii = [150, 230, 340], heights = [38, 70, 120]) {
     radii.forEach((R, li) => {
-      const N = 256;
-      const pos: number[] = [], idx: number[] = [];
-      for (let i = 0; i <= N; i++) {
-        const a = (i / N) * Math.PI * 2;
-        let h = 0, f = 3 + li, amp = 1;
-        for (let o = 0; o < 5; o++) { h += Math.abs(Math.sin(a * f + li * 7.1 + o * 1.7)) * amp; f *= 2.13; amp *= 0.5; }
-        h = Math.pow(h / 1.9, 1.6) * heights[li] + 6;
-        pos.push(Math.cos(a) * R, -10, Math.sin(a) * R, Math.cos(a) * R, h, Math.sin(a) * R);
-        if (i < N) idx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
+      const N=256,rows=20,pos:number[]=[],uv:number[]=[],idx:number[]=[];
+      for(let row=0;row<=rows;row++)for(let i=0;i<=N;i++){
+        const a=i/N*Math.PI*2,t=row/rows;
+        let h=0,f=3+li,amp=1;
+        for(let o=0;o<6;o++){h+=Math.abs(Math.sin(a*f+li*7.1+o*1.7))*amp;f*=2.13;amp*=.5;}
+        const r=R*(.65+t*.55),profile=Math.pow(Math.sin(t*Math.PI),1.3);
+        const erosion=Math.sin(a*71+t*15+li)*Math.sin(a*37-t*24)*2.3*profile;
+        const height=-10+Math.pow(h/1.9,1.6)*heights[li]*profile+erosion;
+        const x=Math.cos(a)*r,z=Math.sin(a)*r;
+        pos.push(x,height,z);uv.push(x/9,z/9);
+        if(row<rows&&i<N){const k=row*(N+1)+i;idx.push(k,k+N+1,k+1,k+1,k+N+1,k+N+2);}
       }
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      g.setIndex(idx);
-      const mm = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: '#202030', side: THREE.DoubleSide, fog: false }));
+      const g=new THREE.BufferGeometry();
+      g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+      g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));g.setIndex(idx);g.computeVertexNormals();
+      const material=M.rock().clone();material.color.set('#93918b');material.side=THREE.DoubleSide;
+      const mm=new THREE.Mesh(g,material);mm.receiveShadow=true;
       mm.renderOrder = -5 + li;
       this.group.add(mm);
       this.layers.push({ mesh: mm, depth: li / (radii.length - 1) });
     });
   }
   tint(near: THREE.Color, horizon: THREE.Color) {
-    for (const l of this.layers) (l.mesh.material as THREE.MeshBasicMaterial).color.copy(near).lerp(horizon, 0.35 + l.depth * 0.5);
+    for(const l of this.layers)(l.mesh.material as THREE.MeshStandardMaterial).color.set('#a7a39b').lerp(horizon,.12+l.depth*.25);
   }
 }
 

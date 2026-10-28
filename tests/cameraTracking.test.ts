@@ -4,6 +4,16 @@ import { CameraRig } from "../src/engine/CameraRig";
 import type { Realm } from "../src/engine/Realm";
 
 describe("moving subject camera", () => {
+  it('frames elevated flying subjects at the requested three-dimensional distance',()=>{
+    const camera=new PerspectiveCamera(),rig=new CameraRig(camera);
+    const realm={controlMode:'walk',bounds:100,eyeHeight:1.7,groundY:()=>0} as unknown as Realm;
+    rig.setFlight(new Vector3(0,2,10),0);
+    const subject=new Vector3(0,20,0);rig.focusOn(subject,12);
+    for(let i=0;i<100;i++)rig.update(1/60,realm);
+    expect(camera.position.distanceTo(subject)).toBeCloseTo(12,5);
+    const projected=subject.clone().project(camera);
+    expect(Math.abs(projected.x)).toBeLessThan(.001);expect(Math.abs(projected.y)).toBeLessThan(.001);
+  });
   it("starts free flight at the requested pose, rises smoothly and brakes", () => {
     const camera = new PerspectiveCamera(),
       rig = new CameraRig(camera),

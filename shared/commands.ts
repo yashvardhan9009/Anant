@@ -141,7 +141,8 @@ export const CommandSchemas = {
     paused: z.boolean().optional(),
     trails: z.boolean().optional(),
   }),
-  cosmos_black_hole: z.object({ op: z.literal('cosmos_black_hole'), show: z.boolean() }),
+  cosmos_black_hole: z.object({ op: z.literal('cosmos_black_hole'), show: z.boolean(),
+    companion: target.optional(), distance_rs: z.number().min(4).max(80).optional(), clear_companion: z.boolean().optional() }),
   cosmos_set_mode: z.object({ op: z.literal('cosmos_set_mode'), mode: z.enum(['sandbox', 'physics']) }),
   cosmos_move_body: z.object({
     op: z.literal('cosmos_move_body'),
@@ -209,7 +210,7 @@ export const COMMAND_DOCS: Record<CommandOp, string> = {
   cosmos_add_body: 'Add a planet on a circular orbit. {name, mass (solar masses; Earth≈3e-6, Jupiter≈9.5e-4), distance (AU), color?}',
   cosmos_remove_body: 'Remove a celestial body. {target}',
   cosmos_set_sim: 'Simulation controls. {time_scale? (years per second, 0..50), paused?, trails?}',
-  cosmos_black_hole: 'Show/hide the Schwarzschild black-hole view. {show}',
+  cosmos_black_hole: 'Show/hide the Schwarzschild black-hole view. {show, companion? planet name (e.g. earth), distance_rs? 4..80 (Schwarzschild radii), clear_companion?}. Use this to bring a planet near the black hole. An illustrative encounter with enlarged planets; separate from the AU solar-system simulation.',
   camera_focus: 'Point the camera at an object, body, or NPC. {target}',
   talk_to: 'Begin a conversation with an NPC in the village. {npc}',
   accuse: 'Formally accuse an NPC of stealing the Ember Crown (story decision with consequences). {npc}',

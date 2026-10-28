@@ -52,6 +52,7 @@ export const MODELS = {
 
 /** Scanned PBR surfaces (colour, OpenGL normal, AO/rough/metal packed). */
 export const TEXTURES = {
+  marble_01: '2k', granite_tile_02: '2k', concrete_floor_02: '2k',
   cobblestone_floor_01: '1k', grassy_cobblestone: '1k', plastered_wall_02: '1k', worn_mossy_plasterwall: '1k',
   weathered_planks: '1k', clay_roof_tiles_02: '1k', roof_slates_02: '1k', thatch_roof_angled: '1k',
   forest_ground_04: '1k', leafy_grass: '1k', stone_wall_04: '1k', castle_brick_01: '1k', mossy_rock: '1k', pine_bark: '1k',
