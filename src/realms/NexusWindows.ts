@@ -101,7 +101,7 @@ function castle(frame: T.Group, color: string, _m: NexusMaterials) {
       }
     });
   });
-  void assets.clone("boulder_01").then((base) => {
+  void assets.init().then(()=>assets.clone("boulder_01")).then((base) => {
     if (!base) return;
     const box = new T.Box3().setFromObject(base),
       size = box.getSize(new T.Vector3()),
