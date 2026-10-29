@@ -1,11 +1,12 @@
 # ANANT — EXPERIENCE THE IMPOSSIBLE.
 
 The project-wide visual objective and hardware budget are recorded in
-[Rendering target](docs/rendering-target.md). The latest pass replaces the
-primitive dragon with a textured animated creature, rebuilds the Nexus arcade
-and surfaces, adds an Ultra graphics option, and repairs malformed AI command
-plans before execution. The Studio now lists requested behaviours it cannot
-simulate, rather than claiming that a visual approximation implements them.
+[Rendering target](docs/rendering-target.md). The Nexus now has a monumental
+dark Gothic hall, four filled destination vignettes, an overhead galaxy
+astrolabe, engraved bronze, scanned stone, braziers and wet marble that reflects
+the actual scene. Gates still open the existing interactive realms. Earlier
+improvements include a textured animated dragon, Ultra graphics and repaired AI
+command plans. The Studio lists behaviours it cannot simulate.
 
 ANANT is an AI-directed immersive experience engine that runs in the browser. Speak or type an intention; **local Ollama models** or **Nebius Token Factory** turn it into validated commands or a compositional scene plan. A deterministic engine executes the plan. The model never runs code.
 
@@ -108,8 +109,14 @@ been live-verified without a configured key.
 Emberfall now uses textured, rigged MakeHuman characters with idle and walking
 animations, recessed windows, timber shutters, layered roof tiles and retained
 foliage detail. Far trees use projections of the scanned assets to limit geometry
-cost. The Nexus adds bevelled stone paving, metal housings and HDR environment
-lighting. Cinema mode hides scientific orbit guides in the solar system.
+cost. The Nexus has clustered piers, pointed vaults, moving inscribed banners,
+layered gate masonry and metal, a scanned central figure and a raised dais.
+Castle and atomic vignettes have real 3D geometry behind circular apertures;
+the accretion illustration and galaxy dust fields use authored shaders. The
+vignettes are artistic destination symbols, not live realm previews. Select a
+gate to open its real travel portal. Walking follows both the dais and rotated
+gate steps, with collision around the figure and gate piers. Cinema mode hides
+scientific orbit guides in the solar system.
 These remain real-time rendered scenes, with quality limited by the assets and
 the device; they are not indistinguishable from live footage.
 
@@ -118,6 +125,8 @@ Asset notices: [Earth data](public/assets/earth/CREDITS.md),
 [Poly Haven and planetary maps](public/assets/CREDITS.json).
 Character rebuild instructions: [character assets](docs/character-assets.md).
 To verify live Earth providers after building: `node scripts/e2e-earth.mjs`.
+To inspect Nexus interaction and rendering at all graphics tiers after building:
+`node scripts/e2e-nexus.mjs`. It uses an isolated temporary world database.
 
 ## Honesty labels
 

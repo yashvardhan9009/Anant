@@ -1,187 +1,246 @@
 import * as T from "three";
-import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
-import { Reflector } from "three/examples/jsm/objects/Reflector.js";
 import { assets } from "../engine/assets";
 import { QUALITY } from "../engine/quality";
+import { addWind } from "../engine/architecture";
+import {
+  Masonry,
+  inscriptionTexture,
+  wetFloor,
+  type NexusMaterials,
+} from "./NexusCraft";
 
-/** A built, human-scale space: separate limestone, granite, bronze and water.
- * Instances keep the joint geometry and edge highlights inexpensive. */
-export function nexusArchitecture() {
+/** A navigable, 72 metre hall. Repeated construction details share batches. */
+export function nexusArchitecture(m: NexusMaterials) {
   const group = new T.Group();
-  const limestone = new T.MeshStandardMaterial({
-    color: "#b1aa9b",
-    roughness: 0.82,
-  });
-  const paving = new T.MeshStandardMaterial({
-    color: "#9c9a92",
-    roughness: 0.57,
-  });
-  const bronze = new T.MeshStandardMaterial({
-    color: "#95816a",
-    metalness: 0.78,
-    roughness: 0.36,
-  });
-  const foundation = new T.MeshStandardMaterial({
-    color: "#66625a",
-    roughness: 0.88,
-  });
-  const add = (
-    geometry: T.BufferGeometry,
-    material: T.Material,
-    x: number,
-    y: number,
-    z: number,
-  ) => {
-    const mesh = new T.Mesh(geometry, material);
-    mesh.position.set(x, y, z);
-    mesh.castShadow = mesh.receiveShadow = true;
-    group.add(mesh);
-    return mesh;
-  };
-  // The dark joints come from actual gaps, rather than a giant tiled photograph.
-  add(new T.CylinderGeometry(22.6, 22.8, 0.65, 160), foundation, 0, -0.44, 0);
-  add(new T.CylinderGeometry(23.2, 23.5, 0.35, 160), foundation, 0, -0.93, 0);
-  const spots: [number, number][] = [];
-  for (let x = -19; x <= 19; x++)
-    for (let z = -19; z <= 19; z++) {
-      const px = x * 1.12,
-        pz = z * 1.12;
-      if (Math.hypot(px, pz) < 18.3) spots.push([px, pz]);
-    }
-  const floor = new T.InstancedMesh(
-    new RoundedBoxGeometry(1.102, 0.16, 1.102, 2, 0.018),
-    paving,
-    spots.length,
+  group.name = "Nexus monumental hall";
+  const b = new Masonry();
+  const positions: [number, number][] = [];
+  for (let x = -15; x <= 15; x++)
+    for (let z = -15; z <= 15; z++)
+      if (Math.hypot(x * 2.4, z * 2.4) < 35.8)
+        positions.push([x * 2.4, z * 2.4]);
+  const paving = new T.InstancedMesh(
+    new T.BoxGeometry(2.37, 0.18, 2.37),
+    m.floor,
+    positions.length,
   );
+  paving.name = "Jointed wet marble slabs";
   const matrix = new T.Matrix4(),
-    colour = new T.Color();
-  spots.forEach(([x, z], i) => {
+    color = new T.Color();
+  positions.forEach(([x, z], i) => {
     matrix.makeRotationY(((i % 4) * Math.PI) / 2);
-    matrix.setPosition(x, -0.075, z);
-    floor.setMatrixAt(i, matrix);
-    floor.setColorAt(i, colour.setScalar(0.86 + (((i * 71) % 97) / 97) * 0.19));
+    matrix.setPosition(x, -0.09, z);
+    paving.setMatrixAt(i, matrix);
+    paving.setColorAt(i, color.setScalar(0.74 + (((i * 37) % 97) / 97) * 0.3));
   });
-  floor.castShadow = floor.receiveShadow = true;
-  floor.computeBoundingSphere();
-  group.add(floor);
-  // Inlaid metal bands terminate the paving and make its scale legible.
-  for (const r of [3.15, 18.85, 21.5, 22.4]) {
-    const ring = add(
-      new T.TorusGeometry(r, r < 4 ? 0.018 : 0.045, 8, 192),
-      bronze,
-      0,
-      0.005,
-      0,
+  paving.receiveShadow = true;
+  paving.computeBoundingSphere();
+  group.add(paving);
+  b.add(new T.CylinderGeometry(36, 37, 1.5, 128), m.stone, [0, -0.9, 0]);
+  if (QUALITY.reflections) group.add(wetFloor(35.8));
+  // Low, walkable steps with real mouldings and metal inlays.
+  for (const [r, y, h] of [
+    [6, 0.09, 0.18],
+    [5.7, 0.25, 0.14],
+    [5.4, 0.4, 0.16],
+  ] as const) {
+    b.add(new T.CylinderGeometry(r, r + 0.08, h, 128), m.iron, [0, y, -2]);
+    b.add(
+      new T.TorusGeometry(r - 0.12, 0.028, 8, 160),
+      m.bronze,
+      [0, y + h / 2 + 0.008, -2],
+      [Math.PI / 2, 0, 0],
     );
-    ring.rotation.x = Math.PI / 2;
   }
-  if (QUALITY.reflections) {
-    const water = new Reflector(new T.RingGeometry(19.1, 21.35, 160), {
-      textureWidth: QUALITY.ultra ? 1024 : 512,
-      textureHeight: QUALITY.ultra ? 1024 : 512,
-      multisample: 0,
-      color: 0x53666a,
-      clipBias: 0.006,
-    });
-    water.rotation.x = -Math.PI / 2;
-    water.position.y = -0.025;
-    const capture = water.onBeforeRender;
-    let last = -Infinity;
-    water.onBeforeRender = (...args) => {
-      const now = performance.now();
-      if (now - last < 1000 / (QUALITY.ultra ? 30 : 15)) return;
-      last = now;
-      const renderer = args[0],
-        auto = renderer.shadowMap.autoUpdate;
-      renderer.shadowMap.autoUpdate = false;
-      try {
-        capture.apply(water, args);
-      } finally {
-        renderer.shadowMap.autoUpdate = auto;
-      }
-    };
-    group.add(water);
+  const inlay = new T.MeshBasicMaterial({
+    color: new T.Color("#92b7fa").multiplyScalar(1.5),
+  });
+  for (const r of [2.9, 3.12, 4.8, 5.25, 16, 32.8, 35.5])
+    b.add(
+      new T.TorusGeometry(r, r > 6 ? 0.025 : 0.018, 6, 192),
+      r === 3.12 || r === 5.25 ? inlay : m.bronze,
+      [0, r < 6 ? 0.49 : 0.018, r < 6 ? -2 : 0],
+      [Math.PI / 2, 0, 0],
+    );
+  for (let i = 0; i < 96; i++) {
+    const a = (i / 96) * Math.PI * 2;
+    b.box(
+      [0.018, 0.018, i % 4 ? 0.19 : 0.4],
+      m.bronze,
+      [Math.cos(a) * 4.96, 0.492, -2 + Math.sin(a) * 4.96],
+      [0, -a, 0],
+    );
   }
-  // Fluted shafts, entasis, capitals and individual voussoirs give the outer
-  // arcade a real construction scale and a readable silhouette at every angle.
-  const count = 16,
-    radius = 24.5;
-  const shaft = new T.CylinderGeometry(0.53, 0.66, 10.6, 48, 12);
-  const vertices = shaft.attributes.position as T.BufferAttribute;
-  for (let i = 0; i < vertices.count; i++) {
-    const x = vertices.getX(i),
-      z = vertices.getZ(i),
-      y = vertices.getY(i),
-      a = Math.atan2(z, x);
-    const f =
-      1 +
-      0.037 * Math.cos(a * 16) +
-      0.022 * Math.sin((y / 10.6 + 0.5) * Math.PI);
-    vertices.setXYZ(i, x * f, y, z * f);
+  for (let i = 0; i < 32; i++) {
+    const a = (i * Math.PI) / 16;
+    b.box(
+      [0.035, 0.018, 18],
+      m.bronze,
+      [Math.sin(a) * 24, 0.018, Math.cos(a) * 24],
+      [0, a, 0],
+    );
   }
-  shaft.computeVertexNormals();
-  const shaftUv = shaft.attributes.uv as T.BufferAttribute;
-  for (let i = 0; i < shaftUv.count; i++)
-    shaftUv.setXY(i, shaftUv.getX(i) * 3.6, (vertices.getY(i) + 5.3) / 1.4);
-  for (let i = 0; i < count; i++) {
-    const a = (i / count) * Math.PI * 2,
-      x = Math.cos(a) * radius,
-      z = Math.sin(a) * radius;
-    add(shaft, limestone, x, 6.3, z);
-    for (const [y, w, h] of [
-      [0.2, 1.9, 0.4],
-      [0.55, 1.6, 0.3],
-      [11.8, 1.6, 0.3],
-      [12.15, 1.9, 0.38],
-    ])
-      add(new RoundedBoxGeometry(w, h, w, 2, 0.035), limestone, x, y, z);
-    for (const y of [0.85, 11.55]) {
-      const torus = add(
-        new T.TorusGeometry(0.69, 0.1, 10, 48),
-        limestone,
-        x,
-        y,
-        z,
+  const inscriptions = inscriptionTexture();
+  const engraved = new T.MeshStandardMaterial({
+    map: inscriptions,
+    color: "#b9ac92",
+    roughness: 0.48,
+    metalness: 0.55,
+  });
+  for (const [inner, outer] of [
+    [3.35, 4.45],
+    [5.02, 5.17],
+  ]) {
+    const geo = new T.RingGeometry(inner, outer, 192, 2),
+      uv = geo.attributes.uv as T.BufferAttribute,
+      p = geo.attributes.position as T.BufferAttribute;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i),
+        y = p.getY(i),
+        a = (Math.atan2(y, x) + Math.PI * 2) % (Math.PI * 2);
+      uv.setXY(
+        i,
+        (Math.hypot(x, y) - inner) / (outer - inner),
+        a / (Math.PI * 2),
       );
-      torus.rotation.x = Math.PI / 2;
     }
-    const b = ((i + 0.5) / count) * Math.PI * 2,
-      chord = 2 * radius * Math.sin(Math.PI / count),
-      archR = chord / 2;
+    const ring = new T.Mesh(geo, engraved);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(0, 0.493, -2);
+    ring.receiveShadow = true;
+    group.add(ring);
+  }
+  const bannerMaterial = new T.MeshStandardMaterial({
+    map: inscriptions,
+    color: "#8f9eb5",
+    roughness: 0.92,
+    side: T.DoubleSide,
+  });
+  addWind(bannerMaterial, "cloth");
+  const bannerGeometry = new T.PlaneGeometry(2.3, 14, 8, 32);
+  const p = bannerGeometry.attributes.position as T.BufferAttribute;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i),
+      y = p.getY(i);
+    p.setXYZ(
+      i,
+      x,
+      y + (y < -6.8 ? Math.abs(x) * 1.1 : 0),
+      Math.sin(x * 7) * 0.07,
+    );
+  }
+  bannerGeometry.computeVertexNormals();
+  const count = 16,
+    radius = 38;
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2;
+    const tower = new T.Group();
+    tower.position.set(Math.sin(a) * radius, 0, Math.cos(a) * radius);
+    tower.rotation.y = a;
+    const t = new Masonry();
+    t.box([2.7, 30, 2.6], m.stone, [0, 15, 0]);
+    for (const x of [-1, -0.63, 0.63, 1]) {
+      t.add(new T.CylinderGeometry(0.16, 0.24, 27.5, 10, 5), m.edge, [
+        x,
+        15,
+        -1.38,
+      ]);
+      t.box([0.045, 25.2, 0.05], m.bronze, [x, 14.9, -1.58]);
+    }
+    for (const [y, w, h] of [
+      [0.2, 4.4, 0.4],
+      [0.65, 3.8, 0.45],
+      [1.15, 3.2, 0.5],
+      [28.7, 3.1, 0.35],
+      [29.2, 3.7, 0.55],
+      [29.8, 4.2, 0.4],
+    ]) {
+      t.box([w, h, w * 0.75], m.edge, [0, y, 0]);
+      t.box([w + 0.04, 0.05, w * 0.75 + 0.04], m.bronze, [0, y + h / 2, 0]);
+    }
+    for (const side of [-1, 1]) {
+      t.box([0.7, 18, 3.8], m.stone, [side * 1.65, 9, 0.9]);
+      t.add(new T.ConeGeometry(0.58, 5, 5), m.iron, [side * 1.65, 21, 0.9]);
+      t.box([0.22, 9, 0.5], m.edge, [side * 1.65, 23, -0.5]);
+    }
+    t.add(new T.ConeGeometry(1.1, 7, 5), m.iron, [0, 33.6, 0]);
+    t.finish(tower, "Clustered gothic pier");
+    const banner = new T.Mesh(bannerGeometry, bannerMaterial);
+    banner.position.set(0, 20, -1.8);
+    banner.castShadow = true;
+    tower.add(banner);
+    group.add(tower);
+    const next = a + (Math.PI * 2) / count,
+      mid = (a + next) / 2;
+    const half = radius * Math.sin(Math.PI / count);
     const arch = new T.Group();
     arch.position.set(
-      Math.cos(b) * radius * Math.cos(Math.PI / count),
-      12.3,
-      Math.sin(b) * radius * Math.cos(Math.PI / count),
+      Math.sin(mid) * radius * Math.cos(Math.PI / count),
+      0,
+      Math.cos(mid) * radius * Math.cos(Math.PI / count),
     );
-    arch.rotation.y = -b - Math.PI / 2;
-    for (let k = 0; k < 17; k++) {
-      const theta = ((k + 0.5) / 17) * Math.PI;
-      const block = new T.Mesh(
-        new RoundedBoxGeometry(
-          (archR * Math.PI) / 17 - 0.025,
-          0.55,
-          0.83,
-          2,
-          0.025,
-        ),
-        limestone,
-      );
-      block.position.set(Math.cos(theta) * archR, Math.sin(theta) * archR, 0);
-      block.rotation.z = theta - Math.PI / 2;
-      block.castShadow = block.receiveShadow = true;
-      arch.add(block);
+    arch.rotation.y = mid;
+    const ab = new Masonry();
+    const curve = new T.CatmullRomCurve3([
+      new T.Vector3(-half, 16, 0),
+      new T.Vector3(-half * 0.85, 23, 0),
+      new T.Vector3(0, 30, 0),
+      new T.Vector3(half * 0.85, 23, 0),
+      new T.Vector3(half, 16, 0),
+    ]);
+    const length = curve.getLength();
+    for (let j = 0; j < 35; j++) {
+      const f = (j + 0.5) / 35,
+        point = curve.getPointAt(f),
+        tangent = curve.getTangentAt(f);
+      ab.box([0.68, length / 35 - 0.035, 1.55], m.edge, point.toArray(), [
+        0,
+        0,
+        -Math.atan2(tangent.x, tangent.y),
+      ]);
     }
+    for (const z of [-0.85, 0.85])
+      ab.add(new T.TubeGeometry(curve, 72, 0.09, 6, false), m.bronze, [
+        0,
+        0,
+        z,
+      ]);
+    ab.box([half * 2, 0.75, 1.7], m.stone, [0, 31.2, 0]);
+    ab.box([half * 2, 0.07, 1.8], m.bronze, [0, 31.65, 0]);
+    ab.finish(arch, "Pointed vault ribs");
     group.add(arch);
   }
-  void assets.init().then(() => {
-    assets.applyTo(limestone, "concrete_floor_02", 1, 0.35);
-    limestone.color.set("#c5c0b4");
-    assets.applyTo(paving, "marble_01", 1, 0.2);
-    paving.roughness = 0.52;
-    paving.color.set("#a5a39e");
-    assets.applyTo(foundation, "concrete_floor_02", 7, 0.6);
-    foundation.color.set("#807e76");
+  b.finish(group);
+  group.userData.ready = m.ready.then(async () => {
+    const statue = await assets.clone("gothic_statue");
+    if (statue) {
+      const box = new T.Box3().setFromObject(statue),
+        size = box.getSize(new T.Vector3());
+      statue.scale.setScalar(3.3 / size.y);
+      statue.position.set(
+        -box.getCenter(new T.Vector3()).x * statue.scale.x,
+        0.49 - box.min.y * statue.scale.y,
+        -2 - box.getCenter(new T.Vector3()).z * statue.scale.z,
+      );
+      statue.rotation.y = Math.PI;
+      statue.name = "Scanned central stone figure";
+      group.add(statue);
+      statue.traverse((o) => {
+        if ((o as T.Mesh).isMesh) {
+          const mesh = o as T.Mesh;
+          const darken = (source: T.Material) => {
+            const mat = (source as T.MeshStandardMaterial).clone();
+            mat.color.multiplyScalar(0.4);
+            mat.roughness = 0.75;
+            return mat;
+          };
+          mesh.material = Array.isArray(mesh.material)
+            ? mesh.material.map(darken)
+            : darken(mesh.material);
+        }
+      });
+    }
+    group.userData.assetsReady = true;
   });
   return group;
 }

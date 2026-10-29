@@ -13,7 +13,9 @@ export class ContactAO extends GTAOPass {
     this.scene.traverse(object => {
       const mesh = object as THREE.Mesh;
       const materials = mesh.material ? (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) : [];
-      if ((object as THREE.Points).isPoints || (object as THREE.Line).isLine || (object as THREE.Sprite).isSprite ||
+      // Aperture scenery uses camera-dependent clipping that the normal/depth
+      // override material cannot reproduce. Do not cast an unclipped AO silhouette.
+      if (object.userData.skipContactAO || (object as THREE.Points).isPoints || (object as THREE.Line).isLine || (object as THREE.Sprite).isSprite ||
           materials.some(m => m.transparent || m.alphaTest > 0 || (m as THREE.MeshPhysicalMaterial).transmission > 0 || (m as THREE.ShaderMaterial).isShaderMaterial || m.side === 1)) {
         this.hidden.set(object, object.visible);
         object.visible = false;

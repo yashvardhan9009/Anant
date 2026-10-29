@@ -593,12 +593,12 @@ export class App implements InputHost {
     else if (p.npcId) this.run([{ op: 'talk_to', npc: p.npcId }], 'npc');
     else if (p.gate) {
       const g = (this.engine.realms.nexus as any).gates.find((x: any) => x.userData.gate === p.gate) as THREE.Object3D;
-      const pos = g.position.clone().multiplyScalar(0.82);
-      const yaw = Math.atan2(-pos.x, -pos.z);
+      const pos = g.localToWorld((g.userData.portalAnchor as THREE.Vector3).clone());
+      const yaw = g.rotation.y;
       const existing = this.state.portals.find((q) => q.from === 'nexus' && q.to === p.gate);
       if (existing) this.run([{ op: 'enter_portal', portal: existing.id }], 'gesture');
       else {
-        const { state, result } = execute(this.state, { op: 'open_portal', to: p.gate, position: [+pos.x.toFixed(2), 2.6, +pos.z.toFixed(2)] }, { yaw });
+        const { state, result } = execute(this.state, { op: 'open_portal', to: p.gate, position: [+pos.x.toFixed(2), +pos.y.toFixed(2), +pos.z.toFixed(2)] }, { yaw });
         if (result.ok) { this.setState(state); this.audio.sfx('portal'); }
         this.hud.system(result.message, result.ok ? 'ok' : 'fail');
       }

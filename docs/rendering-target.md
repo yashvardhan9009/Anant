@@ -21,6 +21,15 @@ expensive effects. Keep the scientific models and artistic approximations labell
   that it sustains 60 fps on this laptop.
 
 Assets stream on demand; trees and dressing use instances and distant projections.
+The Nexus merges static architectural detail by material and instances its floor
+slabs and fragments. A single wet-floor capture runs at 12 Hz / 768 pixels in
+Cinematic, 24 Hz / 1536 in Ultra, and 12 Hz / 384 in Balanced; Performance omits
+it. The static hall reuses its shadow map, enabling dynamic updates while user
+objects are present. Camera-dependent aperture clipping also applies inside
+the floor reflection. Vignette geometry is excluded from the AO override pass,
+which cannot reproduce its custom clipping. Circular hit areas prevent invisible
+background planes from intercepting selection. The destination imagery remains
+an artistic vignette; selecting it opens the existing interactive realm.
 The dragon keeps the source's authored mesh, normal maps, skeleton and motion.
 Its source is pinned and reproducible with `node scripts/fetch-creatures.mjs`.
 
