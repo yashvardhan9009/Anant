@@ -6,6 +6,7 @@ import type { Health } from '../api';
 import { NPC_BY_ID } from '../../shared/story';
 import { escapeHtml } from '../realms/Village';
 import { formatLength } from '../../shared/scale';
+import { QUALITY, QUALITY_NAMES, type QualityName } from '../engine/quality';
 
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string) => {
   const e = document.createElement(tag);
@@ -26,6 +27,7 @@ const HINTS: Record<string, string[]> = {
   atom: ['Show me a water molecule', 'Take me inside the proton', 'Switch to a 2p orbital', 'Excite the electron to 3d', 'Open a portal to space'],
   cosmos: ['Make me large enough to hold the Sun', 'Let me grab the Sun', 'Undo', 'Show me thousands of galaxies', 'Take me to Andromeda', 'Show me a black hole'],
   village: ['Talk to Captain Ilsa', 'Create a floating island above the village', 'Summon a dragon', 'Make it night', 'Create a storm'],
+  heavy: ['Speed up time', 'Make gravity 2 times stronger', 'Take me back to our universe'],
 };
 
 export class HUD {
@@ -44,6 +46,12 @@ export class HUD {
   handPill: HTMLButtonElement;
   soundPill: HTMLButtonElement;
   worldsPill: HTMLButtonElement;
+  earthPill: HTMLButtonElement;
+  onEarth?: () => void;
+  onImagine?: () => void;
+  qualitySelect: HTMLSelectElement;
+  private cinemaPill: HTMLButtonElement;
+  private cinemaExit: HTMLButtonElement;
   worldsMenu: HTMLDivElement;
   cardPill: HTMLButtonElement;
   dialogue: HTMLDivElement;
@@ -62,6 +70,8 @@ export class HUD {
   onAccuse?: () => void;
   onCloseDialogue?: () => void;
   onCreate?: (kind: ObjectKind) => void;
+  onQuality?: (quality: QualityName) => void;
+  private lastRealm?: string;
   private hot = -1;
   private detailsOpen = false;
 
@@ -85,18 +95,40 @@ export class HUD {
     this.soundPill.innerHTML = '♪ <span class="lbl">Sound</span>';
     this.worldsPill = h('button', 'pill');
     this.worldsPill.innerHTML = '◎ <span class="lbl">Worlds</span>';
-    this.cardPill = h('button', innerWidth < 1200 ? 'pill' : 'pill on');
+    this.cardPill = h('button', 'pill');
     this.cardPill.innerHTML = 'ⓘ <span class="lbl">Reality card</span>';
     const helpPill = h('button', 'pill');
     helpPill.innerHTML = '? <span class="lbl">Help</span>';
     helpPill.onclick = () => this.toggleHelp();
-    ctr.append(this.fpsEl, this.aiPill, this.handPill, this.soundPill, this.worldsPill, this.cardPill, helpPill);
+    this.qualitySelect = h('select', 'pill quality-select');
+    this.qualitySelect.setAttribute('aria-label', 'Visual quality');
+    this.qualitySelect.title = 'Visual quality — saves your world and reloads';
+    for (const name of QUALITY_NAMES) {
+      const option = h('option', '', name[0].toUpperCase() + name.slice(1));
+      option.value = name;
+      this.qualitySelect.append(option);
+    }
+    this.qualitySelect.value = QUALITY.name;
+    this.qualitySelect.onchange = () => this.onQuality?.(this.qualitySelect.value as QualityName);
+    this.cinemaPill = h('button', 'pill', 'Cinema');
+    this.cinemaPill.title = 'Hide the interface and labels (P). Escape to return.';
+    this.cinemaPill.setAttribute('aria-pressed', 'false');
+    this.cinemaPill.onclick = () => this.toggleCinema();
+    this.cinemaExit = h('button', 'cinema-exit', 'Exit cinema · Esc');
+    this.cinemaExit.hidden = true;
+    this.cinemaExit.onclick = () => this.toggleCinema(false);
+    document.body.append(this.cinemaExit);
+    this.earthPill = h('button', 'pill', 'Explore Earth');
+    this.earthPill.onclick = () => this.onEarth?.();
+    const imagine = h('button', 'pill', 'Imagine');
+    imagine.onclick = () => this.onImagine?.();
+    ctr.append(imagine, this.earthPill, this.aiPill, this.qualitySelect, this.cinemaPill, this.handPill, this.soundPill, this.worldsPill, this.cardPill, helpPill, this.fpsEl);
     top.append(brand, ctr);
 
     this.banner = h('div', 'banner');
     this.worldsMenu = h('div', 'worlds');
     this.card = h('div', 'card');
-    if (innerWidth < 1200) { this.card.classList.add('collapsed'); }
+    this.card.classList.add('collapsed');
     this.cardPill.onclick = () => {
       this.card.classList.toggle('collapsed');
       this.cardPill.classList.toggle('on', !this.card.classList.contains('collapsed'));
@@ -107,7 +139,7 @@ export class HUD {
     this.feed = h('div', 'feed');
     this.barIn = h('div', 'bar-in');
     this.input = h('input');
-    this.input.placeholder = 'Speak or type an intention…  (T to type, hold V to talk)';
+    this.input.placeholder = 'Where will your imagination take you?';
     this.input.setAttribute('aria-label', 'Intention');
     this.mic = h('button', 'mic');
     this.mic.innerHTML = MIC;
@@ -212,6 +244,18 @@ export class HUD {
     this.help.classList.toggle('open', force);
   }
 
+  toggleCinema(force?: boolean) {
+    const enabled = document.body.classList.toggle('cinema', force);
+    this.root.inert = enabled;
+    this.cinemaExit.hidden = !enabled;
+    this.cinemaPill.setAttribute('aria-pressed', String(enabled));
+    if (enabled) {
+      this.help.classList.remove('open');
+      this.radial.classList.remove('open');
+      this.cinemaExit.focus();
+    } else this.cinemaPill.focus();
+  }
+
   setAi(hh: Health | null) {
     const dot = this.aiPill.querySelector('.dot')!;
     const lbl = this.aiPill.querySelector('.lbl')!;
@@ -222,12 +266,12 @@ export class HUD {
     }
     if (hh.ai.live) {
       dot.className = 'dot live';
-      lbl.textContent = `NEMOTRON · ${hh.ai.model?.replace(/^nvidia\//, '')}`;
+      lbl.textContent = `AI · ${hh.ai.model?.replace(/^nvidia\//, '')}`;
       this.aiPill.title = `Live inference on ${hh.ai.provider}`;
     } else {
       dot.className = 'dot offline';
-      lbl.textContent = hh.ai.mode === 'configured-but-unreachable' ? 'NEMOTRON unreachable · offline parser' : 'OFFLINE PARSER (no API key)';
-      this.aiPill.title = 'The Director is running the deterministic local parser. Set NEBIUS_API_KEY on the server for live Nemotron inference.';
+      lbl.textContent = hh.ai.mode === 'configured-but-unreachable' ? 'AI unavailable · offline' : 'OFFLINE PARSER';
+      this.aiPill.title = 'The Director is running the deterministic local parser. Configure local Ollama or a Nebius API key on the server for live inference.';
     }
   }
 
@@ -244,11 +288,12 @@ export class HUD {
     this.card.innerHTML = `<h3>${escapeHtml(info.title)}</h3><p class="sub">${escapeHtml(info.subtitle)}</p><h4>What you are seeing</h4><div class="acc">${acc}</div><div class="stats">${stats}</div>${info.extraHtml ? `<details${this.detailsOpen ? ' open' : ''}><summary>Data &amp; diagrams</summary>${info.extraHtml}</details>` : ''}`;
     const d = this.card.querySelector('details');
     d?.addEventListener('toggle', () => (this.detailsOpen = d.open));
-    this.hints.replaceChildren(...(HINTS[realm] ?? []).map((t) => {
+    if (realm !== this.lastRealm) this.hints.replaceChildren(...(HINTS[realm] ?? []).map((t) => {
       const b = h('button', 'hint', t);
       b.onclick = () => this.onSubmit?.(t);
       return b;
     }));
+    this.lastRealm = realm;
   }
 
   user(text: string) {
@@ -260,8 +305,8 @@ export class HUD {
   reply(r: DirectorReply, results: { op: string; result: ExecResult }[]) {
     const e = h('div', 'entry');
     const src = h('div', 'src');
-    if (r.source === 'nemotron') {
-      src.innerHTML = `<span class="live">● NEMOTRON</span><span>${escapeHtml(r.model ?? '')}</span><span>${r.latencyMs ?? '?'} ms</span>`;
+    if (r.source !== 'local-parser') {
+      src.innerHTML = `<span class="live">● ${r.source === 'local-ai' ? 'LOCAL AI' : 'NEMOTRON'}</span><span>${escapeHtml(r.model ?? '')}</span><span>${r.latencyMs ?? '?'} ms</span>`;
     } else {
       src.innerHTML = `<span class="offline">● OFFLINE PARSER</span><span>${escapeHtml(r.fallbackReason ?? 'rule-based fallback')}</span>`;
     }

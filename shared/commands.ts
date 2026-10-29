@@ -141,7 +141,8 @@ export const CommandSchemas = {
     paused: z.boolean().optional(),
     trails: z.boolean().optional(),
   }),
-  cosmos_black_hole: z.object({ op: z.literal('cosmos_black_hole'), show: z.boolean() }),
+  cosmos_black_hole: z.object({ op: z.literal('cosmos_black_hole'), show: z.boolean(),
+    companion: target.optional(), distance_rs: z.number().min(4).max(80).optional(), clear_companion: z.boolean().optional() }),
   cosmos_set_mode: z.object({ op: z.literal('cosmos_set_mode'), mode: z.enum(['sandbox', 'physics']) }),
   cosmos_move_body: z.object({
     op: z.literal('cosmos_move_body'),
@@ -209,7 +210,7 @@ export const COMMAND_DOCS: Record<CommandOp, string> = {
   cosmos_add_body: 'Add a planet on a circular orbit. {name, mass (solar masses; Earth≈3e-6, Jupiter≈9.5e-4), distance (AU), color?}',
   cosmos_remove_body: 'Remove a celestial body. {target}',
   cosmos_set_sim: 'Simulation controls. {time_scale? (years per second, 0..50), paused?, trails?}',
-  cosmos_black_hole: 'Show/hide the Schwarzschild black-hole view. {show}',
+  cosmos_black_hole: 'Show/hide the Schwarzschild black-hole view. {show, companion? planet name (e.g. earth), distance_rs? 4..80 (Schwarzschild radii), clear_companion?}. Use this to bring a planet near the black hole. An illustrative encounter with enlarged planets; separate from the AU solar-system simulation.',
   camera_focus: 'Point the camera at an object, body, or NPC. {target}',
   talk_to: 'Begin a conversation with an NPC in the village. {npc}',
   accuse: 'Formally accuse an NPC of stealing the Ember Crown (story decision with consequences). {npc}',
@@ -232,7 +233,7 @@ export function validateCommands(raw: unknown): { valid: Command[]; issues: Vali
   if (!Array.isArray(raw)) return { valid, issues: [{ index: -1, error: 'commands must be an array' }] };
   raw.slice(0, 12).forEach((item, index) => {
     const op = item && typeof item === 'object' ? (item as any).op : undefined;
-    if (!op || !(op in CommandSchemas)) {
+    if (typeof op !== 'string' || !Object.hasOwn(CommandSchemas, op)) {
       issues.push({ index, op, error: `unknown op "${String(op)}"` });
       return;
     }
@@ -270,9 +271,10 @@ export function semanticCheck(cmd: Command): string | null {
 /** Shape the Director (LLM or local) must return. */
 export const DirectorReplySchema = z.object({
   narration: z.string().max(1200).default(''),
-  commands: z.array(z.unknown()).default([]),
+  commands: z.array(z.unknown()).max(12).default([]),
   unsupported: z
     .array(z.object({ request: z.string().max(300), reason: z.string().max(400), suggestion: z.string().max(400).optional() }))
+    .max(12)
     .default([]),
 });
 export type DirectorReply = {
@@ -280,7 +282,7 @@ export type DirectorReply = {
   commands: Command[];
   unsupported: { request: string; reason: string; suggestion?: string }[];
   issues: ValidationIssue[];
-  source: 'nemotron' | 'local-parser';
+  source: 'nemotron' | 'local-ai' | 'local-parser';
   model?: string;
   latencyMs?: number;
   fallbackReason?: string;

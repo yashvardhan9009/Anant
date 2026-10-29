@@ -19,10 +19,13 @@ import { Cosmos } from './realms/Cosmos';
 import { Village } from './realms/Village';
 import { Atom } from './realms/Atom';
 import { assets } from './engine/assets';
+import { QUALITY, QUALITY_KEY } from './engine/quality';
+import { isExperienceIntent } from '../shared/experience';
 
 const LS_KEY = 'anant.world.v1';
+const ACTIVE_WORLD_KEY = 'anant.activeWorld.v1';
 /** Operations that change the world enough to deserve an undo step. */
-const UNDOABLE = new Set(['cosmos_move_body', 'cosmos_set_body', 'cosmos_add_body', 'cosmos_remove_body', 'cosmos_create_system', 'reset_system', 'set_gravity', 'spawn_object', 'delete_object', 'transform_object', 'set_object_property', 'set_environment', 'atom_set_orbital', 'atom_transition', 'cosmos_set_mode']);
+const UNDOABLE = new Set(['cosmos_black_hole', 'cosmos_move_body', 'cosmos_set_body', 'cosmos_add_body', 'cosmos_remove_body', 'cosmos_create_system', 'reset_system', 'set_gravity', 'spawn_object', 'delete_object', 'transform_object', 'set_object_property', 'set_environment', 'atom_set_orbital', 'atom_transition', 'cosmos_set_mode']);
 const JOURNEY: RealmId[] = ['atom', 'cosmos', 'village', 'nexus'];
 const REALM_COLOR: Record<RealmId, string> = { nexus: '#b388ff', atom: '#7df9ff', cosmos: '#ffd27d', village: '#ff9a6b', heavy: '#ff6bd5' };
 
@@ -39,8 +42,8 @@ export class App implements InputHost {
   private queue: Promise<unknown> = Promise.resolve();
   private saveTimer?: number;
   private lastSaveOk = true;
-  private grab?: { id: string; offset: THREE.Vector3; point: THREE.Vector3 };
-  private pending: { scale?: number; rot?: number; atomScale?: number; timer?: number } = {};
+  private grab?: { id: string; offset: THREE.Vector3; point: THREE.Vector3; before: WorldState };
+  private pending: { scale?: number; rot?: number; atomScale?: number; timer?: number; target?: string; before?: WorldState } = {};
   private menuAt = { x: 0, y: 0 };
   private cardTimer = 0;
   private showPerf = false;
@@ -48,6 +51,12 @@ export class App implements InputHost {
   private undoStack: { state: WorldState; label: string }[] = [];
   private redoStack: { state: WorldState; label: string }[] = [];
   private bodyGrab?: { id: string; planeY: number };
+  private worldGeneration = 0;
+  private earth?: import('./earth/EarthExplorer').EarthExplorer;
+  private studio?: import('./experience/ExperienceStudio').ExperienceStudio;
+  private earthResume?: import('./earth/EarthExplorer').EarthView;
+  private openingStudio = false;
+  private openingEarth = false;
 
   constructor() {
     this.engine = new Engine(document.getElementById('stage')!);
@@ -57,10 +66,28 @@ export class App implements InputHost {
     this.hands.onEvents = (ev, hands) => this.input.handleGestures(ev, hands);
 
     this.hud.onSubmit = (t) => this.intention(t);
+    this.hud.onEarth = () => void this.openEarth();
+    this.hud.onImagine = () => void this.openStudio();
     this.hud.onSay = (t) => this.say(t);
     this.hud.onCloseDialogue = () => this.closeDialogue();
     this.hud.onAccuse = () => this.accuseCurrent();
     this.hud.onCreate = (k) => this.createAtMenu(k);
+    this.hud.onQuality = async (quality) => {
+      this.hud.qualitySelect.disabled = true;
+      await this.queue;
+      if (!await this.persist(true)) {
+        this.hud.qualitySelect.disabled = false;
+        this.hud.qualitySelect.value = QUALITY.name;
+        this.hud.system('Could not save your world. Quality was not changed.', 'fail');
+        return;
+      }
+      try { localStorage.setItem(QUALITY_KEY, quality); } catch {}
+      const url = new URL(location.href);
+      url.searchParams.delete('lowfx');
+      url.searchParams.set('quality', quality);
+      url.searchParams.set('skipIntro', '');
+      location.assign(url.href);
+    };
     this.hud.handPill.onclick = () => this.toggleHands();
     this.hud.soundPill.onclick = () => {
       this.audio.setEnabled(!this.audio.enabled);
@@ -83,6 +110,7 @@ export class App implements InputHost {
 
     this.engine.onPortalCross = (id) => this.run([{ op: 'enter_portal', portal: id }], 'walk');
     this.engine.onFrame = (dt) => this.frame(dt);
+    this.engine.rig.onStep = running => { this.audio.start(); this.audio.step(running); };
     (this.engine.realms.atom as Atom).onViewMode = (mode) => {
       const rig = this.engine.rig;
       if (this.engine.active !== 'atom' || this.engine.transitioning) return;
@@ -91,6 +119,8 @@ export class App implements InputHost {
         this.hud.system('You are now swimming through liquid water. Fly with WASD · E/Q up/down · drag to look · click a hydrogen to dive in · Z/X shrink/grow.', 'ok');
       } else if (mode === 'quantum' && rig.mode === 'fly') {
         rig.setOrbit(new THREE.Vector3(), rig.camera.position.clone().normalize().multiplyScalar(16));
+        rig.update(0, this.engine.realms.atom);
+        rig.setFly();
       }
     };
     const village = this.engine.realms.village as Village;
@@ -121,26 +151,50 @@ export class App implements InputHost {
     }
     this.hud.setAi(this.health);
     let loaded: WorldState | undefined;
+    let activeId: string | null = null;
+    try { activeId = localStorage.getItem(ACTIVE_WORLD_KEY); } catch {}
     if (this.serverOk) {
       try {
         const { worlds } = await api.listWorlds();
-        if (worlds.length) loaded = (await api.loadWorld(worlds[0].id)).world;
+        const selected = worlds.find(w => w.id === activeId) ?? worlds[0];
+        if (selected) loaded = (await api.loadWorld(selected.id)).world;
       } catch {}
-    } else {
-      try {
-        const raw = localStorage.getItem(LS_KEY);
-        if (raw) loaded = JSON.parse(raw);
-      } catch {}
+    }
+    // A save can fall back to the browser while the server is temporarily down.
+    // Recover that newer snapshot even when the server is reachable on reload.
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      const local: WorldState | undefined = raw ? JSON.parse(raw) : undefined;
+      if (local?.schema === 1 && (!loaded ||
+          (local.id === loaded.id && local.updatedAt > loaded.updatedAt) ||
+          (local.id === activeId && loaded.id !== activeId))) loaded = local;
+    } catch {}
+    if (!this.serverOk) {
       this.hud.showBanner('Server unreachable — using the offline parser and saving in this browser only.');
     }
     this.loadWorld(loaded ?? createWorld('My Universe'), !!loaded);
     this.engine.start();
+    if (new URLSearchParams(location.search).has('studio')) void this.openStudio();
+    else if (new URLSearchParams(location.search).has('earth')) void this.openEarth();
   }
 
   loadWorld(w: WorldState, resumed = false) {
+    this.worldGeneration++;
+    clearTimeout(this.saveTimer);
+    clearTimeout(this.pending.timer);
+    this.pending = {};
+    this.grab = undefined;
+    this.bodyGrab = undefined;
+    this.undoStack = [];
+    this.redoStack = [];
+    // A saved snapshot may have the same revision counters as another world.
+    for (const r of Object.values(this.engine.realms)) r.resetForWorld();
+    w = structuredClone(w);
+    w.cosmos.grabbed = undefined;
     w.observer ??= { size: 1.7 }; // worlds saved before the scale engine existed
     w.env.heavy ??= { weather: 'clear', timeOfDay: 'night', fog: 0, gravity: 1 }; // worlds saved before the multiverse
     this.state = w;
+    try { localStorage.setItem(ACTIVE_WORLD_KEY, w.id); } catch {}
     const e = this.engine;
     e.state = w;
     for (const r of Object.values(e.realms)) (r as any).built && r.scene.traverse((o: any) => o.isCSS2DObject && (o.element.style.display = 'none'));
@@ -175,6 +229,10 @@ export class App implements InputHost {
 
   /** Entering a realm: keep the observer's size where it makes sense, otherwise adopt the realm's natural scale. */
   private applyObserverFor(realm: RealmId) {
+    if(realm==='cosmos' && this.state.cosmos.blackHole) {
+      this.engine.rig.setOrbit(new THREE.Vector3(),new THREE.Vector3(-6,2.4,33));
+      this.hud.setObserver(this.state.observer?.size??1.7);return;
+    }
     const size = this.state.observer?.size ?? 1.7;
     const space = realm === 'cosmos' || realm === 'heavy';
     const natural = realm === 'atom' ? 1e-10 / this.state.atom.scale : space ? Math.max(size, 1.7) : 1.7;
@@ -202,6 +260,7 @@ export class App implements InputHost {
 
   /** Execute ONE validated command and apply its engine side-effects. Returns the confirmed result. */
   private async exec(cmd: Command): Promise<ExecResult> {
+    this.flushPending();
     if (cmd.op === 'undo' || cmd.op === 'redo') return this.undoRedo(cmd.op);
     const prevRealm = this.state.activeRealm;
     let base = this.state;
@@ -212,9 +271,7 @@ export class App implements InputHost {
       return result;
     }
     if (UNDOABLE.has(cmd.op)) {
-      this.undoStack.push({ state: base, label: result.message.slice(0, 80) });
-      if (this.undoStack.length > 40) this.undoStack.shift();
-      this.redoStack = [];
+      this.pushUndo(base, result.message.slice(0, 80));
     }
     this.setState(state);
     switch (cmd.op) {
@@ -234,8 +291,7 @@ export class App implements InputHost {
       case 'cosmos_grab':
         if (!cmd.release) {
           this.bodyGrab = { id: state.cosmos.grabbed ?? cmd.target ?? '', planeY: 0 };
-          this.undoStack.push({ state: base, label: `Moved ${state.cosmos.grabbed}` });
-          this.redoStack = [];
+          this.pushUndo(base, `Moved ${state.cosmos.grabbed}`);
         } else this.releaseBody();
         break;
       case 'go_to_object': {
@@ -282,6 +338,12 @@ export class App implements InputHost {
   }
 
   /** Restore the previous/next world snapshot (the live simulation reloads from it). */
+  private pushUndo(state: WorldState, label: string) {
+    this.undoStack.push({ state, label });
+    if (this.undoStack.length > 40) this.undoStack.shift();
+    this.redoStack = [];
+  }
+
   private async undoRedo(op: 'undo' | 'redo'): Promise<ExecResult> {
     const from = op === 'undo' ? this.undoStack : this.redoStack;
     const to = op === 'undo' ? this.redoStack : this.undoStack;
@@ -290,10 +352,14 @@ export class App implements InputHost {
     const current = this.withCosmosSnapshot(this.state);
     to.push({ state: current, label: entry.label });
     const restored: WorldState = structuredClone(entry.state);
+    this.bodyGrab = undefined;
+    restored.cosmos.grabbed = undefined;
     restored.cosmos.epoch = Math.max(current.cosmos.epoch, restored.cosmos.epoch) + 1; // force the simulation to reload
     const prevRealm = this.state.activeRealm;
     this.setState(restored);
     if (restored.activeRealm !== prevRealm) await this.engine.transitionTo(restored.activeRealm, undefined, REALM_COLOR[restored.activeRealm]);
+    this.applyObserverFor(restored.activeRealm);
+    this.refreshCard();
     this.audio.sfx('ok');
     return { ok: true, op, message: `${op === 'undo' ? 'Undid' : 'Redid'}: ${entry.label}` };
   }
@@ -339,6 +405,7 @@ export class App implements InputHost {
   async intention(text: string) {
     const t = text.trim();
     if (!t) return;
+    const generation = this.worldGeneration;
     this.audio.start();
     this.hud.user(t);
     if (this.meta(t)) return;
@@ -356,18 +423,102 @@ export class App implements InputHost {
     }
     this.lastDirectorMs = Math.round(performance.now() - t0);
     this.hud.setBusy(false);
+    if (generation !== this.worldGeneration) return; // a delayed reply belongs to the previous world
+    if(!reply.commands.length&&reply.unsupported.length&&/^(create|make|build|summon|imagine|wish|turn)/i.test(t)){void this.openStudio(t);return;}
     const results = await this.run(reply.commands, 'director');
     this.hud.reply(reply, results);
-    if (this.health && reply.source === 'nemotron' && !this.health.ai.live) api.health().then((h) => this.hud.setAi((this.health = h))).catch(() => {});
+    if (this.health && reply.source !== 'local-parser' && !this.health.ai.live) api.health().then((h) => this.hud.setAi((this.health = h))).catch(() => {});
   }
 
   /** UI-only requests that are not world operations. */
   private meta(t: string): boolean {
     const s = t.toLowerCase();
+    if (isExperienceIntent(t)) { void this.openStudio(t); return true; }
+    if (/^(explore earth|land on earth|open earth|google earth|earth explorer|show earth detail)/.test(s)) { void this.openEarth(); return true; }
     if (/^(help|\?|what can (i|you) do)/.test(s)) { this.hud.toggleHelp(true); return true; }
     if (/(the end|finale|end (the )?demo|experience the impossible)/.test(s)) { this.finale(); return true; }
     if (/^(enable|turn on|start) (hand|gesture)/.test(s)) { this.toggleHands(true); return true; }
     return false;
+  }
+
+  async openEarth() {
+    if (this.earth || this.openingEarth || this.studio || this.openingStudio) return;
+    this.openingEarth = true;
+    this.hud.earthPill.disabled = true;
+    try {
+      const { EarthExplorer } = await import('./earth/EarthExplorer');
+      this.engine.suspended = true;
+      this.engine.rig.stopMotion(); this.audio.setSuspended(true);
+      this.hud.toggleCinema(false);
+      this.hud.root.inert = true;
+      this.hud.root.setAttribute('aria-hidden', 'true');
+      const stage = document.getElementById('stage')!;
+      stage.inert = true;
+      stage.setAttribute('aria-hidden', 'true');
+      const restore = () => {
+        this.earth?.dispose(); this.earth = undefined;
+        this.engine.suspended = false; this.engine.rig.stopMotion(); this.audio.setSuspended(false);
+        this.hud.root.inert = false; stage.inert = false;
+        this.hud.root.removeAttribute('aria-hidden'); stage.removeAttribute('aria-hidden');
+        this.hud.earthPill.focus();
+      };
+      this.earth = new EarthExplorer(restore, place => {
+        this.earthResume = this.earth?.snapshot();
+        restore();
+        void this.openStudio('', place, true);
+      });
+      const explorer = this.earth;
+      try {
+        await explorer.start(this.earthResume);
+        if (this.earth === explorer) this.earthResume = undefined;
+      } catch (e) { restore(); throw e; }
+    } catch {
+      this.hud.system('Earth could not start. Please reload and try again.', 'fail');
+    } finally {
+      this.openingEarth = false;
+      this.hud.earthPill.disabled = false;
+    }
+  }
+
+  async openStudio(prompt = '', place = '', returnToEarth = false) {
+    if (this.studio) { if (prompt) this.studio.setPrompt(prompt); return; }
+    if (this.openingStudio || this.earth) return;
+    this.openingStudio = true;
+    const stage = document.getElementById('stage')!;
+    const restore = () => {
+      this.studio?.dispose();
+      this.studio = undefined;
+      this.engine.suspended = false;
+      this.engine.rig.stopMotion();
+      this.audio.setSuspended(false);
+      this.hud.root.inert = false;
+      stage.inert = false;
+      this.hud.root.removeAttribute('aria-hidden');
+      stage.removeAttribute('aria-hidden');
+      this.hud.input.focus();
+      if (returnToEarth) queueMicrotask(() => void this.openEarth());
+    };
+    try {
+      const { ExperienceStudio } = await import('./experience/ExperienceStudio');
+      this.engine.suspended = true;
+      this.engine.rig.stopMotion();
+      this.audio.setSuspended(true);
+      this.voice.stop();
+      this.closeDialogue(true);
+      this.hud.toggleCinema(false);
+      this.hud.root.inert = true;
+      stage.inert = true;
+      this.hud.root.setAttribute('aria-hidden', 'true');
+      stage.setAttribute('aria-hidden', 'true');
+      const generation = this.worldGeneration;
+      this.studio = new ExperienceStudio(restore, reply => {
+        if (generation === this.worldGeneration) this.setState({ ...this.state, experience: reply, updatedAt: Date.now() });
+      }, this.state.experience, place);
+      if (prompt) { this.studio.setPrompt(prompt); void this.studio.generate(); }
+    } catch (e) {
+      restore();
+      this.hud.system(`Reality studio could not start: ${e instanceof Error ? e.message : 'unknown error'}`, 'fail');
+    } finally { this.openingStudio = false; }
   }
 
   // ———————————————————————————————— story ————————————————————————————————
@@ -409,7 +560,7 @@ export class App implements InputHost {
       const before = new Set(this.state.story.playerKnows);
       const { story, accepted } = applyDialogue(this.state.story, npcId, line, r.outcome, r.source);
       this.setState({ ...this.state, story });
-      const meta = r.source === 'nemotron' ? `Nemotron · ${r.latencyMs} ms · ${r.outcome.emotion}` : `offline dialogue (${r.fallbackReason ?? 'no model'})`;
+      const meta = r.source !== 'offline-dialogue' ? `${r.model ?? 'AI'} · ${r.latencyMs} ms · ${r.outcome.emotion}` : `offline dialogue (${r.fallbackReason ?? 'no model'})`;
       this.hud.dialogueLine('npc', r.outcome.speech, meta);
       this.voice.speak(r.outcome.speech, npc.voice);
       this.audio.sfx('speak');
@@ -432,7 +583,7 @@ export class App implements InputHost {
 
   isTyping() {
     const a = document.activeElement;
-    return !!a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA');
+    return !!a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || (a as HTMLElement).isContentEditable);
   }
 
   pickAction(p: PickResult, via: 'mouse' | 'hand') {
@@ -442,12 +593,12 @@ export class App implements InputHost {
     else if (p.npcId) this.run([{ op: 'talk_to', npc: p.npcId }], 'npc');
     else if (p.gate) {
       const g = (this.engine.realms.nexus as any).gates.find((x: any) => x.userData.gate === p.gate) as THREE.Object3D;
-      const pos = g.position.clone().multiplyScalar(0.82);
-      const yaw = Math.atan2(-pos.x, -pos.z);
+      const pos = g.localToWorld((g.userData.portalAnchor as THREE.Vector3).clone());
+      const yaw = g.rotation.y;
       const existing = this.state.portals.find((q) => q.from === 'nexus' && q.to === p.gate);
       if (existing) this.run([{ op: 'enter_portal', portal: existing.id }], 'gesture');
       else {
-        const { state, result } = execute(this.state, { op: 'open_portal', to: p.gate, position: [+pos.x.toFixed(2), 2.6, +pos.z.toFixed(2)] }, { yaw });
+        const { state, result } = execute(this.state, { op: 'open_portal', to: p.gate, position: [+pos.x.toFixed(2), +pos.y.toFixed(2), +pos.z.toFixed(2)] }, { yaw });
         if (result.ok) { this.setState(state); this.audio.sfx('portal'); }
         this.hud.system(result.message, result.ok ? 'ok' : 'fail');
       }
@@ -463,8 +614,7 @@ export class App implements InputHost {
     if (this.state.activeRealm !== 'cosmos') return false;
     const r = execute(this.state, { op: 'cosmos_grab', target: id });
     if (!r.result.ok) return false;
-    this.undoStack.push({ state: this.withCosmosSnapshot(this.state), label: `Moved ${id}` });
-    this.redoStack = [];
+    this.pushUndo(this.withCosmosSnapshot(this.state), `Moved ${id}`);
     this.setState(r.state);
     this.bodyGrab = { id: r.state.cosmos.grabbed!, planeY: 0 };
     this.audio.sfx('select');
@@ -505,7 +655,8 @@ export class App implements InputHost {
     this.commit({ op: 'select_object', target: objectId });
     this.engine.realm.objects.grabbedId = objectId;
     e.moving = false;
-    this.grab = { id: objectId, offset: e.holder.position.clone().sub(point), point: point.clone() };
+    this.flushPending();
+    this.grab = { id: objectId, offset: e.holder.position.clone().sub(point), point: point.clone(), before: this.withCosmosSnapshot(this.state) };
     this.audio.sfx('select');
     return true;
   }
@@ -531,6 +682,8 @@ export class App implements InputHost {
     layer.grabbedId = undefined;
     if (e) {
       const p = e.holder.position;
+      const old = this.grab.before.objects.find(o => o.id === this.grab!.id);
+      if (old && p.distanceTo(new THREE.Vector3(...old.position)) > 0.001) this.pushUndo(this.grab.before, `Moved ${old.name}`);
       this.commit({ op: 'transform_object', target: this.grab.id, move_to: [+p.x.toFixed(3), +p.y.toFixed(3), +p.z.toFixed(3)] });
     }
     this.grab = undefined;
@@ -538,8 +691,11 @@ export class App implements InputHost {
 
   scaleSelected(f: number) {
     const sel = this.state.selectedId && this.state.objects.find((o) => o.id === this.state.selectedId && o.realm === this.state.activeRealm);
+    if (this.pending.target && this.pending.target !== (sel ? sel.id : undefined)) this.flushPending();
     const pend = this.pending;
     if (sel) {
+      pend.before ??= this.withCosmosSnapshot(this.state);
+      pend.target = sel.id;
       pend.scale = Math.min(50, Math.max(0.05, (pend.scale ?? sel.scale) * f));
       const e = this.engine.realm.objects.get(sel.id);
       if (e) e.obj = { ...e.obj, scale: pend.scale };
@@ -554,6 +710,9 @@ export class App implements InputHost {
     const id = this.state.selectedId;
     const e = id ? this.engine.realm.objects.get(id) : undefined;
     if (!e) return;
+    if (this.pending.target && this.pending.target !== id) this.flushPending();
+    this.pending.before ??= this.withCosmosSnapshot(this.state);
+    this.pending.target = id;
     this.pending.rot = (this.pending.rot ?? 0) + d;
     e.holder.rotation.y += d;
     this.flushPendingSoon();
@@ -561,14 +720,18 @@ export class App implements InputHost {
 
   private flushPendingSoon() {
     clearTimeout(this.pending.timer);
-    this.pending.timer = window.setTimeout(() => {
-      const p = this.pending;
-      this.pending = {};
-      const id = this.state.selectedId;
-      if (p.scale !== undefined && id) this.commit({ op: 'transform_object', target: id, scale_to: +p.scale.toFixed(3) });
-      if (p.rot !== undefined && id) this.commit({ op: 'transform_object', target: id, rotate_by: [0, +p.rot.toFixed(4), 0] });
-      if (p.atomScale !== undefined) this.commit({ op: 'atom_set_view', scale: +p.atomScale.toPrecision(4) });
-    }, 350);
+    this.pending.timer = window.setTimeout(() => this.flushPending(), 350);
+  }
+
+  private flushPending() {
+    const p = this.pending;
+    clearTimeout(p.timer);
+    this.pending = {};
+    const id = p.target;
+    if (p.before && id) this.pushUndo(p.before, 'Resized or rotated object');
+    if (p.scale !== undefined && id) this.commit({ op: 'transform_object', target: id, scale_to: +p.scale.toFixed(3) });
+    if (p.rot !== undefined && id) this.commit({ op: 'transform_object', target: id, rotate_by: [0, +p.rot.toFixed(4), 0] });
+    if (p.atomScale !== undefined) this.commit({ op: 'atom_set_view', scale: +p.atomScale.toPrecision(4) });
   }
 
   openCreateMenu(x: number, y: number) {
@@ -663,7 +826,7 @@ export class App implements InputHost {
   toggleFly() {
     const rig = this.engine.rig;
     if (rig.mode === 'fly') {
-      this.engine.placeCameraOnArrival(this.state.activeRealm);
+      this.engine.placeCameraOnArrival(this.state.activeRealm,undefined,true);
       this.hud.system('Camera: guided view.', 'ok');
     } else {
       rig.setFly();
@@ -678,6 +841,7 @@ export class App implements InputHost {
     switch (k) {
       case 't': case 'enter': this.hud.input.focus(); return true;
       case 'h': case '?': this.hud.toggleHelp(); return true;
+      case 'p': this.hud.toggleCinema(); return true;
       case 'g': this.toggleHands(); return true;
       case 'c': this.toggleFly(); return true;
       case 'z': this.nudgeScale(1 / 1.6); return true;
@@ -685,7 +849,7 @@ export class App implements InputHost {
       case '`': this.showPerf = !this.showPerf; return true;
       case ' ': this.menuOpen() ? this.hud.closeRadial() : this.openCreateMenu(innerWidth / 2, innerHeight / 2); return true;
       case 'f': this.push(new THREE.Vector2(0, 0), 1.5); return true;
-      case 'escape': this.closeMenus(); this.closeDialogue(); if (sel) this.setState({ ...this.state, selectedId: undefined }); return true;
+      case 'escape': if (document.body.classList.contains('cinema')) { this.hud.toggleCinema(false); return true; } this.closeMenus(); this.closeDialogue(); if (sel) this.setState({ ...this.state, selectedId: undefined }); return true;
       case 'delete': case 'backspace': if (sel) this.run([{ op: 'delete_object', target: sel }], 'gesture'); return true;
       case 'r': if (sel) this.run([{ op: 'transform_object', target: sel, rotate_by: [0, Math.PI / 4, 0] }], 'gesture'); return true;
       case '[': this.scaleSelected(1 / 1.15); return true;
@@ -720,15 +884,21 @@ export class App implements InputHost {
   }
 
   async persist(explicit: boolean): Promise<boolean> {
+    this.flushPending();
     const w = { ...this.withCosmosSnapshot(this.state), story: { ...this.state.story, activeConversation: undefined } };
     try {
       if (!this.serverOk && !explicit) throw new Error('offline');
       await api.saveWorld(w);
       this.serverOk = true;
+      try {
+        const local = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
+        if (local?.id === w.id && local.updatedAt <= w.updatedAt) localStorage.removeItem(LS_KEY);
+      } catch {}
       if (!this.lastSaveOk) this.hud.showBanner(null);
       this.lastSaveOk = true;
       return true;
     } catch {
+      this.serverOk = false;
       try {
         localStorage.setItem(LS_KEY, JSON.stringify(w));
         this.hud.showBanner('Server unreachable — saving in this browser only.');
@@ -762,7 +932,8 @@ export class App implements InputHost {
         d.onclick = async () => {
           m.classList.remove('open');
           if (w.id === this.state.id) return;
-          await this.persist(true);
+          await this.queue;
+          if (!await this.persist(true)) { this.hud.system('Could not save this universe. Please try again before switching.', 'fail'); return; }
           try { this.loadWorld((await api.loadWorld(w.id)).world, true); } catch (e: any) { this.hud.system(`Could not load: ${e.message}`, 'fail'); }
         };
         m.append(d);
@@ -774,7 +945,8 @@ export class App implements InputHost {
         const name = prompt('Name your new universe', 'Universe ' + (worlds.length + 1));
         if (!name) return;
         m.classList.remove('open');
-        await this.persist(true);
+        await this.queue;
+        if (!await this.persist(true)) { this.hud.system('Could not save this universe. Please try again before creating another.', 'fail'); return; }
         this.loadWorld(createWorld(name.slice(0, 48)));
         this.persist(true);
         this.hud.system(`Created a new universe: “${name}”.`);

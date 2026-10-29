@@ -1,7 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { validateCommands, orbitalName } from '../shared/commands';
+import { validateCommands, orbitalName, DirectorReplySchema } from '../shared/commands';
 
 describe('command validation', () => {
+  it('rejects inherited property names and non-string operations without throwing', () => {
+    const result = validateCommands(['constructor', 'toString', '__proto__', 42, {}].map(op => ({ op })));
+    expect(result.valid).toHaveLength(0);
+    expect(result.issues).toHaveLength(5);
+  });
+  it('rejects oversized director collections', () => {
+    expect(DirectorReplySchema.safeParse({ commands: Array(13).fill({ op: 'undo' }) }).success).toBe(false);
+    expect(DirectorReplySchema.safeParse({ unsupported: Array(13).fill({ request: 'x', reason: 'x' }) }).success).toBe(false);
+  });
   it('accepts well-formed commands', () => {
     const { valid, issues } = validateCommands([
       { op: 'go_to_realm', realm: 'atom' },

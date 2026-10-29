@@ -24,7 +24,7 @@ export const NpcReplySchema = z.object({
 
 export interface NpcResponse {
   outcome: DialogueOutcome;
-  source: 'nemotron' | 'offline-dialogue';
+  source: 'nemotron' | 'local-ai' | 'offline-dialogue';
   model?: string;
   latencyMs: number;
   fallbackReason?: string;
@@ -72,7 +72,7 @@ export async function npcReply(npcId: string, line: string, story: StoryState, l
     const allowed = new Set(revealableFacts(npc, story));
     return { outcome: { ...out, reveals: out.reveals.filter((r) => allowed.has(r)) }, source: 'offline-dialogue', latencyMs: Date.now() - t0, fallbackReason: reason, droppedReveals: [] };
   };
-  if (!llm.enabled) return offline('no NEBIUS_API_KEY configured');
+  if (!llm.enabled) return offline('no AI provider configured');
   try {
     const { text, model } = await llm.chat(
       [{ role: 'system', content: buildNpcPrompt(npc, story) }, { role: 'user', content: `Traveler: ${line.slice(0, 500)}` }],
@@ -85,13 +85,13 @@ export async function npcReply(npcId: string, line: string, story: StoryState, l
     const dropped = parsed.data.reveals.filter((r) => !allowed.has(r));
     return {
       outcome: { ...parsed.data, reveals, disposition_delta: Math.max(-10, Math.min(10, Math.round(parsed.data.disposition_delta))) },
-      source: 'nemotron',
+      source: llm.source,
       model,
       latencyMs: Date.now() - t0,
       droppedReveals: dropped,
     };
   } catch (e: any) {
-    return offline(`Nemotron call failed (${e instanceof LlmError ? e.kind : 'error'}) — offline dialogue used`);
+    return offline(`AI call failed (${e instanceof LlmError ? e.kind : 'error'}) — offline dialogue used`);
   }
 }
 

@@ -27,6 +27,9 @@
     "large_castle_door"
   ],
   "textures": [
+    "marble_01",
+    "granite_tile_02",
+    "concrete_floor_02",
     "cobblestone_floor_01",
     "grassy_cobblestone",
     "plastered_wall_02",
@@ -40,12 +43,15 @@
     "stone_wall_04",
     "castle_brick_01",
     "mossy_rock",
-    "pine_bark"
+    "pine_bark",
+    "sand_01",
+    "snow_02"
   ],
   "hdris": [
     "kloppenheim_06_puresky",
     "kloppenheim_02_puresky",
-    "moonless_golf"
+    "moonless_golf",
+    "kloofendal_48d_partly_cloudy_puresky"
   ],
   "space": [
     "8k_stars_milky_way.jpg",
@@ -62,5 +68,73 @@
     "2k_saturn_ring_alpha.png",
     "2k_uranus.jpg",
     "2k_neptune.jpg"
-  ]
+  ],
+  "detail": {
+    "cobblestone_floor_01": [
+      "diff",
+      "nor",
+      "arm",
+      "height"
+    ],
+    "forest_ground_04": [
+      "diff",
+      "nor",
+      "arm",
+      "height"
+    ],
+    "leafy_grass": [
+      "diff",
+      "nor",
+      "arm",
+      "height"
+    ],
+    "plastered_wall_02": [
+      "diff",
+      "nor",
+      "arm",
+      "height"
+    ],
+    "weathered_planks": [
+      "diff",
+      "nor",
+      "arm",
+      "height"
+    ],
+    "stone_wall_04": [
+      "diff",
+      "nor",
+      "arm",
+      "height"
+    ],
+    "mossy_rock": [
+      "diff",
+      "nor",
+      "arm",
+      "height"
+    ],
+    "clay_roof_tiles_02": [
+      "diff",
+      "nor",
+      "arm",
+      "height"
+    ],
+    "roof_slates_02": [
+      "diff",
+      "nor",
+      "arm",
+      "height"
+    ],
+    "sand_01": [
+      "diff",
+      "nor",
+      "arm",
+      "height"
+    ],
+    "snow_02": [
+      "diff",
+      "nor",
+      "arm",
+      "height"
+    ]
+  }
 }

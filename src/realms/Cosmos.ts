@@ -61,9 +61,18 @@ export class Cosmos extends Realm {
   private e0 = 0;
   private centerIdx = 0;
   private stepsLastFrame = 0;
+  private worldId?: string;
+
+  resetForWorld() {
+    super.resetForWorld();
+    this.epoch = -1;
+    this.revision = -1;
+    this.grabbed = undefined;
+    this.focusAstro = undefined;
+  }
 
   protected build() {
-    this.look = { exposure: 1.0, bloom: [0.6, 0.6, 0.8], contrast: 1.12, saturation: 1.05, shadows: '#040818', highlights: '#fff0dc', vignette: 0.7, godRays: 0.3 };
+    this.look = { exposure: 1.0, bloom: [0.28, 0.5, 1.2], contrast: 1.04, saturation: 1.0, shadows: '#040818', highlights: '#fff4e8', vignette: 0.24, godRays: 0 };
     const su = this.sky.uniforms;
     su.uHorizon.value.set('#04050c'); su.uTop.value.set('#010104'); su.uBottom.value.set('#010104');
     su.uNebA.value.set('#3a2a7a'); su.uNebB.value.set('#103e6a'); su.uNebula.value = 0.35; su.uBand.value = 1.1; su.uStars.value = 1.3;
@@ -76,7 +85,7 @@ export class Cosmos extends Realm {
       // The panorama is stored nearly linear (mean ≈ 1/255): apply an astrophotography asinh
       // stretch so the faint galactic band shows without blowing out the stars.
       const skyMat = new THREE.ShaderMaterial({
-        uniforms: { uMap: { value: mw }, uK: { value: 220 }, uGain: { value: 1.7 } },
+        uniforms: { uMap: { value: mw }, uK: { value: 6 }, uGain: { value: 0.55 } },
         side: THREE.BackSide, depthWrite: false,
         vertexShader: `varying vec3 vD; void main(){ vD = normalize(position); vec4 p = projectionMatrix*modelViewMatrix*vec4(position,1.0); gl_Position = p.xyww; }`,
         fragmentShader: `uniform sampler2D uMap; uniform float uK, uGain; varying vec3 vD;
@@ -95,11 +104,13 @@ export class Cosmos extends Realm {
     // Black hole: a sphere around the camera; the fragment shader integrates
     // photon paths in the Schwarzschild metric (units: r_s = 1).
     this.bhMat = new THREE.ShaderMaterial({
-      uniforms: { uCam: { value: new THREE.Vector3() }, uTime: { value: 0 }, uFade: { value: 0 }, uScale: { value: 0.85 }, uSky: { value: assets.space('8k_stars_milky_way.jpg') }, uHasSky: { value: assets.space('8k_stars_milky_way.jpg') ? 1 : 0 } },
+      uniforms: { uCam: { value: new THREE.Vector3() }, uTime: { value: 0 }, uFade: { value: 0 }, uScale: { value: 0.85 }, uSky: { value: assets.space('8k_stars_milky_way.jpg') }, uHasSky: { value: assets.space('8k_stars_milky_way.jpg') ? 1 : 0 },
+        uPlanet:{value:assets.space('8k_earth_daymap.jpg')},uPlanetOn:{value:0},uPlanetPos:{value:new THREE.Vector3()},uPlanetColor:{value:new THREE.Color('#ffffff')} },
       side: THREE.BackSide, depthWrite: false, depthTest: false, transparent: true,
       vertexShader: /* glsl */ `varying vec3 vW; void main(){ vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; gl_Position.z = gl_Position.w*0.999; }`,
       fragmentShader: /* glsl */ `
         uniform vec3 uCam; uniform float uTime, uFade, uScale, uHasSky; uniform sampler2D uSky; varying vec3 vW;
+        uniform sampler2D uPlanet; uniform float uPlanetOn; uniform vec3 uPlanetPos,uPlanetColor;
         ${NOISE_GLSL}
         ${SKY_STRETCH}
         vec3 stars(vec3 d){
@@ -131,6 +142,26 @@ export class Cosmos extends Realm {
             vec3 pPrev = p;
             // null geodesic in Schwarzschild spacetime: d²x/dλ² = −(3/2) h² x / r⁵
             v += -1.5*h2*p/pow(r, 5.0)*dt; p += v*dt;
+            if(uPlanetOn>.5) {
+              // Intersect each bent photon segment with the companion. Its
+              // apparent shape follows the same ray integration as the sky.
+              vec3 segment=p-pPrev;float lengthSegment=length(segment);
+              vec3 direction=segment/max(lengthSegment,.00001),offset=pPrev-uPlanetPos;
+              float b=dot(offset,direction),c=dot(offset,offset)-.55*.55,disc=b*b-c;
+              if(disc>=0.) {
+                float hit=-b-sqrt(disc);
+                if(hit>=0.&&hit<=lengthSegment) {
+                  vec3 n=normalize(pPrev+direction*hit-uPlanetPos);
+                  vec2 uv=vec2(atan(n.z,n.x)*.15915494+.5-uTime*.004,asin(clamp(n.y,-1.,1.))*.31830989+.5);
+                  vec3 surface=texture2D(uPlanet,uv).rgb*uPlanetColor;
+                  float light=max(0.,dot(n,normalize(-uPlanetPos+vec3(0.,8.,0.))));
+                  vec3 planet=surface*(.1+light*2.2);
+                  float atmosphere=pow(1.-max(0.,dot(n,-direction)),3.);
+                  planet+=vec3(.15,.32,.5)*atmosphere*(.15+light*.7);
+                  col+=(1.-alpha)*planet;alpha=1.;captured=true;break;
+                }
+              }
+            }
             if (pPrev.y*p.y < 0.0) {
               vec3 q = mix(pPrev, p, pPrev.y/(pPrev.y - p.y));
               float rq = length(q.xz);
@@ -155,7 +186,7 @@ export class Cosmos extends Realm {
             vec3 bg = stars(d);
             if (uHasSky > 0.5) {
               // the real Milky Way, seen along the BENT ray — this is gravitational lensing of actual sky imagery
-              bg = milkyWay(uSky, d, 220.0, 1.7) + bg * 0.25;
+              bg = milkyWay(uSky, d, 6.0, 0.55) + bg * 0.08;
             }
             col += (1.0-alpha) * bg;
           }
@@ -240,19 +271,24 @@ export class Cosmos extends Realm {
     } else {
       const real = PLANET_MAPS[def.id] ? assets.space(PLANET_MAPS[def.id]) : null;
       const mat = real
-        ? new THREE.MeshStandardMaterial({ map: real, roughness: 0.92, metalness: 0 })
+        ? new THREE.MeshStandardMaterial({ map: real, roughness: def.id === 'earth' ? 0.62 : 0.9, metalness: 0 })
         : new THREE.MeshStandardMaterial({ map: this.planetTexture(def), bumpMap: this.planetTexture(def), bumpScale: def.mass > 1e-5 ? 0.2 : 2, roughness: def.id === 'earth' ? 0.55 : 0.85, metalness: 0 });
       mesh = new THREE.Mesh(new THREE.SphereGeometry(def.radius, 96, 64), mat);
       if (def.id === 'earth' && real) this.makeEarth(mesh, mat, def.radius);
       const atm = ATMOSPHERE[def.id];
       if (atm) {
-        const shell = new THREE.Mesh(new THREE.SphereGeometry(def.radius * 1.12, 48, 32), new THREE.ShaderMaterial({
+        const shell = new THREE.Mesh(new THREE.SphereGeometry(def.radius * (def.id === 'earth' ? 1.035 : 1.055), 64, 40), new THREE.ShaderMaterial({
           uniforms: { uColor: { value: new THREE.Color(atm) }, uSun: { value: new THREE.Vector3() } },
           transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide,
           vertexShader: `varying vec3 vN; varying vec3 vW; varying vec3 vV; void main(){ vN = normalize(mat3(modelMatrix)*normal); vec4 w = modelMatrix*vec4(position,1.0); vW = w.xyz; vV = normalize(cameraPosition - w.xyz); gl_Position = projectionMatrix*viewMatrix*w; }`,
           fragmentShader: `uniform vec3 uColor; uniform vec3 uSun; varying vec3 vN; varying vec3 vW; varying vec3 vV;
-            void main(){ float f = pow(1.0 - abs(dot(vN, vV)), 2.5); float lit = smoothstep(-0.3, 0.6, dot(-vN, normalize(uSun - vW)));
-              gl_FragColor = vec4(uColor * f * lit * 2.2, f * lit); }`,
+            void main(){
+              vec3 N = normalize(vN), V = normalize(vV), L = normalize(uSun - vW);
+              float rim = pow(1.0 - abs(dot(N, V)), 3.5);
+              float daylight = smoothstep(-0.2, 0.45, dot(N, L));
+              float sunset = exp(-pow(dot(N,L)*5.0, 2.0));
+              vec3 scatter = mix(uColor, vec3(0.65,0.19,0.045), sunset*0.6);
+              gl_FragColor = vec4(scatter * 1.8, rim * (daylight + sunset*0.22) * 0.7); }`,
         }));
         shell.userData.atmosphere = true;
         mesh.add(shell);
@@ -284,7 +320,7 @@ export class Cosmos extends Realm {
     for (let i = 0; i < TRAIL; i++) { const k = Math.pow(1 - i / TRAIL, 1.6) * 0.8; tc.set([base.r * k, base.g * k, base.b * k], i * 3); }
     tg.setAttribute('color', new THREE.BufferAttribute(tc, 3));
     tg.setDrawRange(0, 0);
-    const trail = new THREE.Line(tg, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    const trail = new THREE.Line(tg, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false }));
     trail.frustumCulled = false;
     this.system.add(mesh, trail);
     return { id: def.id, mesh, label, trail, trailPos, trailN: 0, colorKey: def.color, glow, light };
@@ -296,20 +332,27 @@ export class Cosmos extends Realm {
     if (night) {
       mat.emissiveMap = night;
       mat.emissive = new THREE.Color('#ffd9a0');
-      mat.emissiveIntensity = 1.6;
+      mat.emissiveIntensity = 0.65;
       mat.onBeforeCompile = (sh) => {
         sh.uniforms.uSunView = this.sunView;
         sh.fragmentShader = 'uniform vec3 uSunView;\n' + sh.fragmentShader.replace(
           '#include <emissivemap_fragment>',
           `#include <emissivemap_fragment>
           float dayside = dot(normalize(vNormal), normalize(uSunView));
-          totalEmissiveRadiance *= smoothstep(0.15, -0.25, dayside);`,
+          totalEmissiveRadiance *= 1.0 - smoothstep(-0.25, 0.15, dayside);`,
         );
+        sh.fragmentShader = sh.fragmentShader.replace('#include <roughnessmap_fragment>', `
+          #include <roughnessmap_fragment>
+          // Ocean highlights are smoother than land. Derived from the day map,
+          // this is a visual material mask, not an additional measured dataset.
+          float ocean = smoothstep(0.015, 0.09, diffuseColor.b - max(diffuseColor.r, diffuseColor.g));
+          roughnessFactor = mix(0.88, 0.28, ocean);
+        `);
       };
     }
     const cloudsT = assets.space('2k_earth_clouds.jpg', false);
     if (cloudsT) {
-      const clouds = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.015, 96, 64), new THREE.MeshStandardMaterial({ alphaMap: cloudsT, transparent: true, color: '#ffffff', roughness: 1, depthWrite: false }));
+      const clouds = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.008, 96, 64), new THREE.MeshStandardMaterial({ alphaMap: cloudsT, transparent: true, color: '#f1f5ff', roughness: 1, depthWrite: false, opacity: 0.85 }));
       clouds.userData.clouds = true;
       mesh.add(clouds);
     }
@@ -365,7 +408,8 @@ export class Cosmos extends Realm {
     this.trails = c.trails;
     this.sim.gScale = state.env.cosmos.gravity;
     this.grabbed = c.grabbed;
-    if (c.epoch !== this.epoch) {
+    if (state.id !== this.worldId || c.epoch !== this.epoch) {
+      this.worldId = state.id;
       this.epoch = c.epoch;
       this.revision = c.revision ?? 0;
       this.rebuild(c.bodies);
@@ -410,6 +454,14 @@ export class Cosmos extends Realm {
       }
     }
     this.bhOn = c.blackHole;
+    const companion=c.blackHoleCompanion;
+    if(this.bhMat)this.bhMat.uniforms.uPlanetOn.value=companion?1:0;
+    if(companion && this.bhMat) {
+      const d=companion.distanceRs;
+      this.bhMat.uniforms.uPlanetPos.value.set(d*.075,d*.035,d*.9966);
+      const maps:Record<string,string>={earth:'8k_earth_daymap.jpg',mars:'2k_mars.jpg',venus:'2k_venus_atmosphere.jpg',mercury:'2k_mercury.jpg',jupiter:'2k_jupiter.jpg',saturn:'2k_saturn.jpg',uranus:'2k_uranus.jpg',neptune:'2k_neptune.jpg'};
+      this.bhMat.uniforms.uPlanet.value=assets.space(maps[companion.bodyId]??'8k_earth_daymap.jpg');
+    }
   }
 
   /** Copy live positions/velocities back into a state's body list (for saving / adding bodies). */
@@ -483,7 +535,7 @@ export class Cosmos extends Realm {
       if (v.light && this.sunWorld) this.sunWorld.copy(p);
       const mat = v.mesh.material as any;
       if (mat.uniforms?.uTime) mat.uniforms.uTime.value = ctx.t;
-      v.trail.visible = this.trails;
+      v.trail.visible = this.trails && !document.body.classList.contains('cinema');
       if (this.trails && !ctx.frozen && !this.paused) {
         // ring-buffer shift (cheap at this size)
         const last = v.trailN > 0 ? new THREE.Vector3(v.trailPos[0], v.trailPos[1], v.trailPos[2]) : null;
@@ -521,8 +573,8 @@ export class Cosmos extends Realm {
     this.bh.visible = this.bhFade > 0.01;
     this.system.visible = this.fade.solar > 0.02 && this.bhFade < 0.98;
     this.bhMat.uniforms.uFade.value = this.bhFade;
-    this.look.bloom = this.bhOn ? [0.6, 0.65, 0.85] : [0.35, 0.4, 1.4];
-    this.look.godRays = this.bhOn ? 0 : 0.3 * this.fade.solar;
+    this.look.bloom = this.bhOn ? [0.3, 0.5, 1.2] : [0.28, 0.5, 1.2];
+    this.look.godRays = 0;
     this.bhMat.uniforms.uTime.value = ctx.t;
     this.bhMat.uniforms.uCam.value.copy(ctx.camera.position);
     this.bh.position.copy(ctx.camera.position);
@@ -637,11 +689,12 @@ export class Cosmos extends Realm {
       return {
         title: 'Schwarzschild Black Hole',
         mode: 'SCIENTIFIC REALITY',
-        subtitle: 'Light passing near the hole is bent by spacetime curvature. The dark disc is the shadow: rays that fall in never come back.',
+        subtitle: s.cosmos.blackHoleCompanion ? `${s.cosmos.bodies.find(b=>b.id===s.cosmos.blackHoleCompanion?.bodyId)?.name} near a black hole · illustrative encounter at ${s.cosmos.blackHoleCompanion.distanceRs} r_s. Planet size enlarged for visibility.` : 'Light passing near the hole is bent by spacetime curvature. The dark disc is the shadow: rays that fall in never come back.',
         accuracy: [
           { tag: 'SIMULATION', text: 'Each pixel integrates a photon path through the Schwarzschild metric (null geodesic, d²x/dλ² = −1.5 h² x / r⁵), so lensing, the shadow and the warped far side of the disk are computed, not painted.' },
           { tag: 'MODEL', text: 'Non-rotating, uncharged hole. Thin disk from the ISCO (3 r_s) outward, temperature ∝ r^−3/4.' },
           { tag: 'ARTISTIC', text: 'Disk turbulence, colours, brightness and Doppler beaming are approximations; there is no gravitational redshift or time dilation in the colours.' },
+          ...(s.cosmos.blackHoleCompanion ? [{tag:'ARTISTIC' as const,text:'The companion is enlarged to 0.55 r_s for visibility. Its surface is intersected along the bent rays; illumination and atmosphere are illustrative. No orbital evolution, tidal destruction or habitability simulation.'}] : []),
         ],
         stats: [{ label: 'Shadow radius', value: '≈ 2.6 r_s' }, { label: 'Photon sphere', value: '1.5 r_s' }, { label: 'ISCO', value: '3 r_s' }],
       };

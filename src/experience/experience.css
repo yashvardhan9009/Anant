@@ -1,0 +1,439 @@
+.experience-studio {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: #080e17;
+  color: #edf1f4;
+  font:
+    13px/1.5 Inter,
+    system-ui,
+    sans-serif;
+  isolation: isolate;
+}
+.experience-canvas {
+  position: absolute;
+  inset: 0;
+}
+.experience-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  outline-offset: -3px;
+}
+.experience-studio button,
+.experience-studio select,
+.experience-studio input,
+.experience-studio textarea {
+  font: inherit;
+  color: inherit;
+  border: 1px solid #ffffff26;
+  border-radius: 7px;
+  background: #101b27bb;
+  padding: 8px 12px;
+}
+.experience-studio button {
+  cursor: pointer;
+}
+.experience-studio button:hover {
+  background: #2b4053dd;
+  border-color: #b0e7ff77;
+}
+.experience-studio button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.experience-studio :focus-visible {
+  outline: 2px solid #b3eaff;
+  outline-offset: 3px;
+}
+.experience-studio [hidden] {
+  display: none !important;
+}
+.experience-header {
+  position: absolute;
+  top: 20px;
+  left: 24px;
+  right: 24px;
+  display: flex;
+  gap: 22px;
+  align-items: center;
+}
+.experience-brand {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  font-weight: 600;
+}
+.experience-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.experience-intro {
+  position: absolute;
+  top: 95px;
+  left: 38px;
+  max-width: 440px;
+  pointer-events: none;
+  text-shadow: 0 2px 18px #000;
+}
+.experience-provenance {
+  font-size: 10px;
+  color: #c4d5e2;
+  letter-spacing: 0.2em;
+}
+.experience-intro h1 {
+  font-family: Georgia, serif;
+  font-weight: 400;
+  font-size: clamp(28px, 3vw, 44px);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin: 10px 0 12px;
+}
+.experience-intro p {
+  max-width: 390px;
+  color: #c6d0d7;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.experience-details {
+  position: absolute;
+  top: 82px;
+  right: 24px;
+  width: min(370px, 85vw);
+  max-height: calc(100% - 150px);
+  overflow: auto;
+  padding: 24px;
+  border: 1px solid #ffffff24;
+  border-radius: 12px;
+  background: #0b1523f2;
+  z-index: 3;
+  box-shadow: 0 20px 80px #0008;
+}
+.experience-details h2 {
+  font-size: 18px;
+  margin-top: 0;
+}
+.experience-details a {
+  display: block;
+  color: #a5daef;
+  margin-top: 16px;
+}
+.experience-details p {
+  color: #bccbd6;
+  font-size: 12px;
+}
+.experience-details .experience-extract {
+  font-size: 11px;
+}
+.experience-dock {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  width: min(790px, calc(100% - 36px));
+  padding: 16px;
+  border: 1px solid #d0e3f626;
+  border-radius: 15px;
+  background: linear-gradient(140deg, #152534e6, #07111de8);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 12px 50px #0007;
+}
+.experience-toolbar {
+  display: flex;
+  gap: 6px;
+  overflow: auto;
+  padding-bottom: 9px;
+  border-bottom: 1px solid #ffffff12;
+}
+.experience-toolbar button {
+  font-size: 11px;
+  padding: 6px 10px;
+  white-space: nowrap;
+  flex: 1;
+}
+.experience-toolbar button[aria-pressed="true"] {
+  background: #badde5;
+  color: #0b1b26;
+  border-color: #d7f2f7;
+}
+.experience-controls {
+  display: flex;
+  gap: 5px;
+  position: absolute;
+  bottom: calc(100% + 12px);
+  right: 0;
+}
+.experience-controls button {
+  font-size: 11px;
+  background: #0a1522b3;
+  backdrop-filter: blur(8px);
+}
+.experience-modes {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 10px 0;
+}
+.experience-modes select {
+  border: 0;
+  padding: 3px 4px;
+  font-size: 12px;
+  background: #122433;
+}
+.experience-modes label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #b8c7d2;
+}
+.experience-modes input {
+  accent-color: #b3e2e9;
+}
+.experience-history {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+.experience-history input {
+  min-width: 0;
+  flex: 1;
+}
+.experience-form {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.experience-form textarea {
+  min-width: 0;
+  resize: none;
+  flex: 1;
+  background: #02091280;
+  padding: 11px 12px;
+  font-size: 13px;
+}
+.experience-form .experience-submit {
+  background: #d2e8e6;
+  color: #14282a;
+  font-weight: 600;
+}
+.experience-form button {
+  font-size: 12px;
+}
+.experience-suggestions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.experience-suggestions button {
+  border: 0;
+  background: none;
+  padding: 3px 6px;
+  font-size: 11px;
+  color: #aabeca;
+}
+.experience-status {
+  min-height: 18px;
+  font-size: 11px;
+  color: #9bc4d1;
+  margin-top: 7px;
+}
+.experience-guide {
+  position: absolute;
+  left: 26px;
+  bottom: 8px;
+  font-size: 10px;
+  color: #91a6b3;
+  pointer-events: none;
+}
+.experience-reticle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: #dfedf29a;
+  font: 20px monospace;
+  pointer-events: none;
+}
+.experience-studio[data-element="explore"] .experience-reticle {
+  opacity: 0.35;
+}
+.experience-exit-cinema {
+  display: none;
+  position: absolute;
+  bottom: 20px;
+  right: 22px;
+}
+.experience-cinema .experience-header,
+.experience-cinema .experience-intro,
+.experience-cinema .experience-details,
+.experience-cinema .experience-dock,
+.experience-cinema .experience-guide,
+.experience-cinema .experience-reticle {
+  display: none;
+}
+.experience-cinema .experience-exit-cinema {
+  display: block;
+}
+.experience-studio option {
+  background: #132537;
+}
+.experience-studio small {
+  color: #8da8b8;
+  font-size: 10px;
+}
+@media (max-width: 700px) {
+  .experience-header {
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    gap: 8px;
+  }
+  .experience-brand {
+    display: none;
+  }
+  .experience-actions {
+    gap: 4px;
+  }
+  .experience-actions button {
+    padding: 7px;
+    font-size: 11px;
+  }
+  .experience-intro {
+    top: 70px;
+    left: 20px;
+    max-width: 300px;
+  }
+  .experience-intro p {
+    display: none;
+  }
+  .experience-dock {
+    bottom: 24px;
+    padding: 10px;
+  }
+  .experience-toolbar button {
+    flex: none;
+  }
+  .experience-form {
+    flex-wrap: wrap;
+  }
+  .experience-form textarea {
+    flex-basis: 100%;
+    height: 60px;
+  }
+  .experience-form button {
+    flex: 1;
+  }
+  .experience-controls {
+    bottom: calc(100% + 9px);
+    left: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .experience-controls button {
+    white-space: nowrap;
+    padding: 7px;
+    font-size: 10px;
+  }
+  .experience-controls button:nth-child(4) {
+    grid-column: span 2;
+  }
+  .experience-controls select {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    font-size: 10px;
+    padding: 7px;
+  }
+  .experience-guide {
+    left: 12px;
+    right: 12px;
+    font-size: 9px;
+  }
+  .experience-status {
+    font-size: 10px;
+  }
+  .experience-modes {
+    margin: 7px 0;
+  }
+  .experience-history input {
+    font-size: 11px;
+    padding: 6px;
+  }
+  .experience-details {
+    max-height: calc(100% - 130px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .experience-studio * {
+    scroll-behavior: auto;
+  }
+}
+.experience-playing .experience-modes,
+.experience-playing .experience-history,
+.experience-playing .experience-suggestions {
+  display: none;
+}
+.experience-playing .experience-intro p {
+  display: none;
+}
+.experience-playing .experience-intro h1 {
+  font-size: 30px;
+  max-width: 420px;
+}
+.experience-playing .experience-form textarea {
+  height: 42px;
+  min-height: 42px;
+  max-height: 42px;
+}
+.experience-playing .experience-dock {
+  padding: 10px 12px;
+  background: linear-gradient(140deg, #132331d1, #07111dd9);
+  width: min(750px, calc(100% - 36px));
+}
+.experience-playing .experience-toolbar {
+  border: 0;
+  padding-bottom: 8px;
+}
+.experience-playing .experience-status {
+  margin-top: 3px;
+}
+.experience-playing .experience-provenance {
+  font-size: 9px;
+}
+.experience-playing .experience-intro {
+  top: 92px;
+}
+.experience-lighting {
+  color: #d8e6eb;
+  background: #10212ed9;
+  border: 1px solid #8fadb235;
+  border-radius: 7px;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 11px;
+  max-width: 140px;
+}
+@media (max-width: 700px) {
+  .experience-actions button {
+    font-size: 10px;
+    padding: 6px;
+  }
+  .experience-playing .experience-form {
+    flex-wrap: nowrap;
+  }
+  .experience-playing .experience-form textarea {
+    flex-basis: auto;
+    font-size: 11px;
+  }
+  .experience-playing .experience-form button {
+    flex: none;
+    font-size: 10px;
+    padding: 7px;
+  }
+  .experience-playing .experience-intro h1 {
+    font-size: 25px;
+  }
+}

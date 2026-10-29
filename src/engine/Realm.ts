@@ -70,9 +70,16 @@ export abstract class Realm {
 
   protected abstract build(): void;
 
+  /** Invalidate live state when a saved world replaces the current one. */
+  resetForWorld() {
+    this.objects.grabbedId = undefined;
+  }
+
   groundY(_x: number, _z: number): number {
     return 0;
   }
+
+  constrainWalk(position: THREE.Vector3) { return position; }
 
   sync(state: WorldState, t: number) {
     this.ensureBuilt();
@@ -116,7 +123,7 @@ export abstract class Realm {
   focusPoint(kind: string, id: string): THREE.Vector3 | undefined {
     if (kind === 'object') {
       const e = this.objects.get(id);
-      if (e) return new THREE.Box3().setFromObject(e.holder).getCenter(new THREE.Vector3());
+      if (e) return new THREE.Box3().setFromObject(e.holder, true).getCenter(new THREE.Vector3());
     }
     return undefined;
   }

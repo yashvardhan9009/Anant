@@ -10,6 +10,9 @@ import { direct } from './director.js';
 import { npcReply } from './npc.js';
 import { Store } from './db.js';
 import { NPC_BY_ID } from '../shared/story.js';
+import { earthImagery } from './earth.js';
+import { composeExperience } from './experience.js';
+import { ExperienceRequestSchema } from '../shared/experience.js';
 
 // Minimal .env loader (no dependency): KEY=VALUE lines, existing env wins.
 try {
@@ -20,13 +23,13 @@ try {
   }
 } catch {}
 
-const PORT = Number(process.env.PORT || 8787);
+const PORT = Number(process.env.PORT ?? 8787);
 const llm = new NebiusClient(configFromEnv());
 const store = new Store(process.env.ANANT_DB || 'data/anant.db');
 const DIST = join(process.cwd(), 'dist');
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm',
-  '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.task': 'application/octet-stream', '.woff2': 'font/woff2',
+  '.png': 'image/png', '.jpg':'image/jpeg', '.webp':'image/webp', '.glb':'model/gltf-binary', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.task': 'application/octet-stream', '.woff2': 'font/woff2',
 };
 
 function send(res: ServerResponse, status: number, body: unknown) {
@@ -64,7 +67,8 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse) {
   }
   try {
     const data = await readFile(file);
-    res.writeHead(200, { 'Content-Type': MIME[extname(file)] ?? 'application/octet-stream', 'Cache-Control': file.includes('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache' });
+    const immutable=url.pathname.startsWith('/assets/')&&!url.pathname.endsWith('/manifest.json')&&!url.pathname.endsWith('/CREDITS.json');
+    res.writeHead(200, { 'Content-Type': MIME[extname(file)] ?? 'application/octet-stream', 'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache' });
     res.end(data);
   } catch {
     send(res, 404, { error: 'not found — run `npm run build` first' });
@@ -77,6 +81,17 @@ const server = createServer(async (req, res) => {
   try {
     if (!path.startsWith('/api/')) return serveStatic(req, res);
 
+    if (path === '/api/earth/config' && req.method === 'GET') {
+      // This must be a browser/referrer-restricted Maps key, never a server secret.
+      return send(res, 200, { googleMapsKey: process.env.GOOGLE_MAPS_BROWSER_KEY || null });
+    }
+    const earthTile = path.match(/^\/api\/earth\/imagery\/(\d+)\/(\d+)\/(\d+)\.jpg$/);
+    if (earthTile && req.method === 'GET') {
+      const image = await earthImagery(Number(earthTile[1]), Number(earthTile[2]), Number(earthTile[3]));
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' });
+      res.end(image); return;
+    }
+
     if (path === '/api/health' && req.method === 'GET') {
       let model: string | undefined;
       if (llm.enabled) model = await llm.resolveModel().catch(() => undefined);
@@ -84,13 +99,22 @@ const server = createServer(async (req, res) => {
         ok: true,
         ai: {
           live: llm.enabled && !!model,
-          provider: 'Nebius Token Factory',
+          provider: llm.provider,
           model: model ?? null,
-          mode: llm.enabled ? (model ? 'nemotron' : 'configured-but-unreachable') : 'offline-parser',
+          mode: llm.enabled ? (model ? llm.source : 'configured-but-unreachable') : 'offline-parser',
           lastError: llm.lastError ?? null,
           lastLatencyMs: llm.lastLatencyMs ?? null,
         },
       });
+    }
+
+    if (path === '/api/experience' && req.method === 'POST') {
+      const parsed = ExperienceRequestSchema.safeParse(await readBody(req, 80000));
+      if (!parsed.success) return send(res, 400, {error:'Invalid scene request. Use a prompt of 1–1600 characters and a valid scene.'});
+      const cancel=new AbortController();res.on('close',()=>{if(!res.writableEnded)cancel.abort();});
+      const reply=await composeExperience(parsed.data, llm, undefined, cancel.signal);
+      if(!res.destroyed)return send(res, 200, reply);
+      return;
     }
 
     if (path === '/api/director' && req.method === 'POST') {
@@ -135,12 +159,14 @@ const server = createServer(async (req, res) => {
     }
     return send(res, 404, { error: 'unknown endpoint' });
   } catch (e: any) {
+    if (path.startsWith('/api/earth/imagery/')) return send(res, e.status ?? 502, { error: 'Earth imagery temporarily unavailable' });
     console.error('[anant]', e);
     return send(res, e.status ?? 500, { error: e.message ?? 'internal error' });
   }
 });
 
 server.listen(PORT, () => {
-  console.log(`[anant] server on http://localhost:${PORT}`);
-  console.log(`[anant] AI: ${llm.enabled ? `Nebius Token Factory @ ${llm.cfg.baseUrl} (model: ${llm.cfg.model ?? 'auto-select Nemotron'})` : 'NO NEBIUS_API_KEY → offline parser / offline dialogue (clearly labelled in the UI)'}`);
+  const address = server.address();
+  console.log(`[anant] server on http://localhost:${typeof address === 'object' && address ? address.port : PORT}`);
+  console.log(`[anant] AI: ${llm.enabled ? `${llm.provider} @ ${llm.cfg.baseUrl} (model: ${llm.cfg.model ?? 'auto-select'})` : 'Offline parser / offline dialogue (clearly labelled in the UI)'}`);
 });

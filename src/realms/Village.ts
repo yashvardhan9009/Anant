@@ -1,17 +1,23 @@
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { Realm, InfoCard, FrameCtx } from '../engine/Realm';
+import { resolveObstacles } from '../engine/motion';
 import { makeSkyDome, makeMotes, Weather, NOISE_GLSL } from '../engine/fx';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { halfTimberHouse, worldBox, M, barrel, crate, grassField, forest, rocks, Ridges, groundMaterial, WIND, addWind } from '../engine/architecture';
 import { softSprite, cloth, applyPBR } from '../engine/textures';
 import { QUALITY } from '../engine/quality';
-import { assets, place } from '../engine/assets';
+import { assets, place,updateAssetLOD } from '../engine/assets';
+import {naturalFoliage,weatherStone} from '../experience/NaturalMaterials';
+import {lanternHead} from '../engine/LanternKit';
+import {villageCobbles,cullCobbles} from './VillageCobbles';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import type { WorldState, Env } from '../../shared/worldState';
 import { NPCS, NpcDef, FACTS, StoryState } from '../../shared/story';
 
 /** radius inside which trees use scanned models */
-const NEAR_TREES = QUALITY.low ? 38 : 50;
+const NEAR_TREES = QUALITY.low ? 28 : 34;
 
 const WAYPOINTS: Record<string, [number, number]> = {
   gate: [3, 19], square: [2.5, 2], watchtower: [-16, -15], inn: [10, 1], forge: [-9, -3], garden: [13.5, 10], well: [-11, 9.5],
@@ -44,10 +50,15 @@ interface NpcView {
   target: THREE.Vector3;
   armL: THREE.Mesh;
   armR: THREE.Mesh;
+  legs: THREE.Group[];
   ring: THREE.Mesh;
   walking: boolean;
   phase: number;
   approachPlayer: boolean;
+  mixer?: THREE.AnimationMixer;
+  idle?: THREE.AnimationAction;
+  walk?: THREE.AnimationAction;
+  wasWalking?: boolean;
 }
 
 export class Village extends Realm {
@@ -58,6 +69,11 @@ export class Village extends Realm {
   private sun = new THREE.DirectionalLight('#ffb27a', 2.4);
   private hemi = new THREE.HemisphereLight('#6a8ad0', '#2a2018', 0.5);
   private lanternLights: THREE.PointLight[] = [];
+  private lampFlames:THREE.MeshStandardMaterial[]=[];
+  private fallbackGrass?:THREE.Object3D;
+  private cobbles?:THREE.Group;
+  private foliageLOD:THREE.Group[]=[];
+  private nearGrassReady=false;
   private forgeLight = new THREE.PointLight('#ff6a1a', 30, 16, 2);
   private fireflies = makeMotes(320, new THREE.Vector3(80, 5, 80), '#e4ff8a', 0.07);
   private embers = makeMotes(160, new THREE.Vector3(1.2, 5, 1.2), '#ff8a3a', 0.07);
@@ -72,18 +88,31 @@ export class Village extends Realm {
   /** fired when an NPC that walked up to the player arrives (opening line) */
   onApproach?: (npcId: string) => void;
 
+  resetForWorld() {
+    super.resetForWorld();
+    this.greeted = false;
+    this.talkingTo = undefined;
+    for (const v of this.npcs.values()) {
+      v.approachPlayer = false;
+      v.walking = false;
+      v.ring.visible = false;
+      const wp = WAYPOINTS[v.def.routine.dusk];
+      v.root.position.set(wp[0], this.groundY(wp[0], wp[1]), wp[1]);
+    }
+  }
+
   protected build() {
     const q = QUALITY;
-    this.look = { exposure: 1.1, bloom: [0.42, 0.55, 0.86], contrast: 1.16, saturation: 0.95, shadows: '#0a2030', highlights: '#ffcf9a', vignette: 0.6, godRays: 0.6 };
+    this.look = { exposure: 1.05, bloom: [0.2, 0.45, 1.2], contrast: 1.08, saturation: 0.94, shadows: '#101b26', highlights: '#f9e4c6', vignette: 0.3, godRays: 0.22 };
     this.scene.fog = new THREE.FogExp2('#5a3e4a', 0.012);
     this.sky.uniforms.uClouds.value = 0.9;
     this.envSource = this.sky.mesh;
     this.scene.add(this.sky.mesh, this.hemi, this.fireflies, this.weather.points, this.ridges.group);
     this.sun.castShadow = q.shadows;
     this.sun.shadow.mapSize.set(q.shadowMap, q.shadowMap);
-    Object.assign(this.sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 1, far: 220 });
+    Object.assign(this.sun.shadow.camera, { left: -23, right: 23, top: 23, bottom: -23, near: 1, far: 220 });
     this.sun.shadow.bias = -0.0004;
-    this.sun.shadow.normalBias = 0.04;
+    this.sun.shadow.normalBias = 0.018;
     this.scene.add(this.sun, this.sun.target);
 
     // Terrain: vertex-coloured biome blend × tiled PBR detail
@@ -121,14 +150,14 @@ export class Village extends Realm {
     sq.rotateX(-Math.PI / 2).translate(2.5, 0, 2);
     const sqUv = sq.attributes.uv as THREE.BufferAttribute;
     for (let i = 0; i < sqUv.count; i++) sqUv.setXY(i, sqUv.getX(i) * 2.5, sqUv.getY(i) * 2.5);
-    const square = new THREE.Mesh(conform(sq), M.cobble());
+    const square = new THREE.Mesh(conform(sq,QUALITY.cinematic?.006:.05), M.cobble());
     square.receiveShadow = true;
     this.scene.add(square);
     const road = new THREE.PlaneGeometry(3.2, 46, 4, 80);
     road.rotateX(-Math.PI / 2).translate(2.5, 0, 2);
     const rUv = road.attributes.uv as THREE.BufferAttribute;
     for (let i = 0; i < rUv.count; i++) rUv.setXY(i, rUv.getX(i) * 1.1, rUv.getY(i) * 16);
-    const roadM = new THREE.Mesh(conform(road, 0.04), M.cobble());
+    const roadM = new THREE.Mesh(conform(road, QUALITY.cinematic?.006:0.04), M.cobble());
     roadM.receiveShadow = true;
     this.scene.add(roadM);
 
@@ -282,8 +311,7 @@ export class Village extends Realm {
     lanternSpots.forEach(([x, z], i) => {
       const y = this.groundY(x, z);
       this.scene.add(this.box(new THREE.CylinderGeometry(0.06, 0.09, 2.8, 8), M.iron(), x, y + 1.4, z));
-      this.scene.add(this.box(new THREE.BoxGeometry(0.34, 0.46, 0.34), new THREE.MeshStandardMaterial({ color: '#ffb347', emissive: '#ffa040', emissiveIntensity: 5 }), x, y + 2.95, z, false));
-      this.scene.add(this.box(new THREE.ConeGeometry(0.3, 0.28, 4).rotateY(Math.PI / 4), M.iron(), x, y + 3.3, z));
+      const head=lanternHead();head.position.set(x,y+2.95,z);this.scene.add(head);this.lampFlames.push(head.userData.flame);
       if (i < 6) {
         const l = new THREE.PointLight('#ffae5a', 8, 14, 2);
         l.position.set(x, y + 2.95, z);
@@ -313,12 +341,12 @@ export class Village extends Realm {
 
     // Grass, forest, rocks
     const clear = (x: number, z: number) => this.pathFactor(x, z) < 0.15 && !this.footprints.some((f) => (x - f.x) ** 2 + (z - f.z) ** 2 < f.r * f.r) && (x - 2.5) ** 2 + (z - 2) ** 2 > 7.6 ** 2;
-    this.scene.add(grassField(q.grassBlades, () => {
+    this.fallbackGrass=grassField(q.grassBlades, () => {
       const r = Math.sqrt(Math.random()) * 46, a = Math.random() * Math.PI * 2;
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
       const y = this.groundY(x, z);
       return clear(x, z) && y < 6 ? { x, y, z } : null;
-    }));
+    });this.scene.add(this.fallbackGrass);
     const spots: { x: number; y: number; z: number; s: number; rot: number; kind: 'pine' | 'oak' }[] = [];
     let seed = 7;
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -361,10 +389,15 @@ export class Village extends Realm {
 
     for (const def of NPCS) this.addNpc(def);
     this.terrain = ground;
-    this.upgradeWithAssets();
+    this.assetsReady = this.upgradeWithAssets().catch(error => console.warn('Village asset upgrade failed', error));
   }
 
   private footprints: { x: number; z: number; r: number }[] = [];
+
+  constrainWalk(position: THREE.Vector3) {
+    const safe = resolveObstacles(position.x, position.z, this.footprints);
+    position.x = safe.x; position.z = safe.z; return position;
+  }
   private propSpots: [number, number, number][] = [[9, 1.5, 0], [9.6, 2.2, 0], [-8.6, -3.6, 1], [-9.4, -2.8, 0], [-7.8, -4.6, 1], [14.5, 1, 1]];
   private procProps: THREE.Object3D[] = [];
   private treeSpots: { x: number; y: number; z: number; s: number; rot: number; kind: 'pine' | 'oak' }[] = [];
@@ -373,8 +406,10 @@ export class Village extends Realm {
   private rockGroup?: THREE.Object3D;
   private terrain?: THREE.Mesh;
   private hdr?: { texture: THREE.DataTexture; sunDir: THREE.Vector3; horizon: THREE.Color; zenith: THREE.Color };
+  private dayHdr?: { texture: THREE.DataTexture; sunDir: THREE.Vector3; horizon: THREE.Color; zenith: THREE.Color };
   /** which real assets were loaded (shown in the reality card) */
   assetReport: string[] = [];
+  assetsReady: Promise<void> = Promise.resolve();
 
   /**
    * Replace procedural stand-ins with scanned CC0 assets (Poly Haven) where available.
@@ -413,17 +448,22 @@ export class Village extends Realm {
       n++;
     }
     if (n) rep.push(`${n} scanned PBR surfaces`);
+    for(const ridge of this.ridges.layers){const m=ridge.mesh.material as THREE.MeshStandardMaterial;weatherStone(m);assets.applyTo(m,'mossy_rock',1,.55);m.color.set('#a7a39b');}
+    if(QUALITY.cinematic){this.cobbles=villageCobbles((x,z)=>this.groundY(x,z));this.scene.add(this.cobbles);}
 
     // 2 — real dusk sky (HDRI) lighting the whole scene
     this.hdr = (await assets.hdri('kloppenheim_06_puresky')) ?? undefined;
+    this.dayHdr = (await assets.hdri('kloofendal_48d_partly_cloudy_puresky')) ?? undefined;
     if (this.hdr) {
       rep.push('HDRI sky: Kloppenheim 06 (dusk)');
       if (this.env) this.applyEnv(this.env);
     }
 
+    // Preserve photographed lighting and materials, but use lightweight foliage.
+    if (QUALITY.low) { this.assetReport = rep; return; }
     const foliage = (mode: 'tree' | 'plant') => (m: THREE.MeshStandardMaterial) => {
-      if (m.alphaTest > 0 || m.transparent) { m.side = THREE.DoubleSide; m.alphaTest = Math.max(m.alphaTest, 0.45); m.transparent = false; }
-      addWind(m, mode);
+      if (m.alphaTest > 0 || m.transparent) { m.side = THREE.DoubleSide; m.alphaTest = .25; m.alphaToCoverage = true; m.transparent = false; }
+      naturalFoliage(m, mode==='tree');
     };
     // 3 — real trees replace the procedural forest
     const conifers = ['fir_tree_01', 'pine_tree_01'].filter((id) => assets.has('models', id));
@@ -442,12 +482,15 @@ export class Village extends Realm {
           const tf = mine.map((s) => place(s.x, s.y, s.z, s.rot, (targetH * s.s * (0.8 + ((s.x * 13) % 1 + 1) % 1 * 0.4)) / size.y));
           const inst = await assets.instanced(id, tf, { patch: foliage('tree') });
           if (inst) { g.add(inst); rep.push(`${mine.length}× ${id}`); }
+          const far = this.treeSpots.filter(s => s.kind === kind && Math.hypot(s.x, s.z) >= NEAR_TREES).filter((_, i) => i % list.length === k);
+          const cards = await assets.impostors(id, far.map(s => place(s.x, s.y, s.z, s.rot, targetH * s.s / size.y)));
+          if (cards) g.add(cards);
         }
       }
       if (g.children.length) {
         if (this.forestGroup) this.scene.remove(this.forestGroup);
-        this.forestGroup = forest(this.treeSpots.filter((s) => Math.hypot(s.x, s.z) >= NEAR_TREES));
-        this.scene.add(g, this.forestGroup);
+        this.forestGroup = g;
+        this.scene.add(g);
       }
     }
 
@@ -457,17 +500,20 @@ export class Village extends Realm {
     const clear = (x: number, z: number, pad = 0) => this.pathFactor(x, z) < 0.1 && !this.footprints.some((f) => (x - f.x) ** 2 + (z - f.z) ** 2 < (f.r + pad) ** 2) && (x - 2.5) ** 2 + (z - 2) ** 2 > 8 ** 2;
     const scatter = async (id: string, count: number, rMin: number, rMax: number, sMin: number, sMax: number, pad = 0, mode: 'tree' | 'plant' = 'plant') => {
       const tf: THREE.Matrix4[] = [];
+      const source=await assets.size(id),target:Record<string,number>={grass_medium_01:.38,grass_medium_02:.45,fern_02:.75,nettle_plant:.7,shrub_01:1.5,shrub_04:1.3};
+      const normalise=target[id]&&source?target[id]/source.y:1;
       for (let tries = 0; tf.length < count && tries < count * 20; tries++) {
         const a = rnd() * Math.PI * 2, r = rMin + Math.sqrt(rnd()) * (rMax - rMin);
         const x = Math.cos(a) * r, z = Math.sin(a) * r;
         if (!clear(x, z, pad) || this.groundY(x, z) > 7) continue;
-        tf.push(place(x, this.groundY(x, z) - 0.03, z, rnd() * 6.28, sMin + rnd() * (sMax - sMin)));
+        tf.push(place(x, this.groundY(x, z) - 0.03, z, rnd() * 6.28, (sMin + rnd() * (sMax - sMin))*normalise));
       }
-      const inst = await assets.instanced(id, tf, { shadows: mode === 'tree', patch: foliage(mode) });
-      if (inst) { this.scene.add(inst); rep.push(`${tf.length}× ${id}`); }
+      const inst = await assets.instanced(id, tf, { shadows: mode === 'tree', patch: foliage(mode),maxDistance:mode==='plant'?20:undefined });
+      if (inst) { this.scene.add(inst);if(id.startsWith('grass_medium'))this.nearGrassReady=true;if(mode==='plant')this.foliageLOD.push(inst); rep.push(`${tf.length}× ${id}`); }
     };
-    await scatter('grass_medium_01', QUALITY.low ? 120 : 600, 6, 45, 0.8, 1.4);
-    await scatter('grass_medium_02', QUALITY.low ? 80 : 500, 6, 45, 0.8, 1.5);
+    await scatter('grass_medium_01', 1400, 5, 45, 0.8, 1.4);
+    await scatter('grass_medium_02', 1100, 5, 45, 0.8, 1.5);
+    if(this.fallbackGrass&&this.nearGrassReady)(this.fallbackGrass as THREE.Mesh).material instanceof THREE.MeshStandardMaterial&&(((this.fallbackGrass as THREE.Mesh).material as THREE.MeshStandardMaterial).userData.grassNearFade.value=13);
     await scatter('fern_02', QUALITY.low ? 40 : 260, 20, 60, 0.8, 1.6);
     await scatter('nettle_plant', QUALITY.low ? 20 : 120, 8, 40, 0.8, 1.3, 0.5);
     await scatter('shrub_01', QUALITY.low ? 10 : 60, 14, 50, 0.7, 1.3, 1, 'tree');
@@ -560,20 +606,24 @@ export class Village extends Realm {
     const body = new THREE.Group();
     root.add(body);
     const fabric = cloth();
-    const cloak = applyPBR(new THREE.MeshStandardMaterial({ color: def.color, roughness: 1 }), fabric, 3, 0.8);
+    const cloakColor = new THREE.Color(def.color).lerp(new THREE.Color('#4b4850'), 0.45);
+    const cloak = applyPBR(new THREE.MeshStandardMaterial({ color: cloakColor, roughness: 1 }), fabric, 6, 0.35);
     const under = applyPBR(new THREE.MeshStandardMaterial({ color: new THREE.Color(def.color).multiplyScalar(0.45), roughness: 1 }), fabric, 3, 0.8);
-    const skin = new THREE.MeshPhysicalMaterial({ color: '#c99474', roughness: 0.55, sheen: 0.3, sheenColor: new THREE.Color('#ffccaa') });
+    const skin = new THREE.MeshPhysicalMaterial({ color: '#b8866b', roughness: 0.72, sheen: 0.12, sheenColor: new THREE.Color('#e9b29c') });
     const hair = new THREE.MeshStandardMaterial({ color: def.id === 'maera' ? '#7a3a1c' : def.id === 'doran' ? '#1c1410' : '#2a1e16', roughness: 0.7 });
     const leather = new THREE.MeshStandardMaterial({ color: '#3a2618', roughness: 0.6 });
     // robe: smooth lathe with flared hem and folds
     const prof: THREE.Vector2[] = [];
-    for (let i = 0; i <= 16; i++) {
-      const y = (i / 16) * 1.42;
-      const t = y / 1.42;
-      const r = 0.43 - t * 0.2 + Math.pow(1 - t, 6) * 0.05 + (t > 0.82 ? (t - 0.82) * 0.5 : 0) - (t > 0.93 ? (t - 0.93) * 3.2 : 0);
-      prof.push(new THREE.Vector2(Math.max(0.02, r), y));
+    const shortTunic = def.id === 'ilsa' || def.id === 'doran';
+    const hem = shortTunic ? 0.67 : 0.15;
+    for (let i = 0; i <= 32; i++) {
+      const y = hem + (i / 32) * (1.45 - hem);
+      const waist = 0.20 + 0.045 * Math.exp(-(((y - 1.28) / 0.12) ** 2));
+      const skirt = Math.max(0, 0.96 - y) * (shortTunic ? 0.12 : 0.24);
+      const neck = 1 - 0.55 * THREE.MathUtils.smoothstep(y, 1.34, 1.45);
+      prof.push(new THREE.Vector2((waist + skirt) * neck, y));
     }
-    const robeG = new THREE.LatheGeometry(prof, 36);
+    const robeG = new THREE.LatheGeometry(prof, 64);
     const rp = robeG.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < rp.count; i++) {
       const x = rp.getX(i), y = rp.getY(i), z = rp.getZ(i);
@@ -583,41 +633,68 @@ export class Village extends Realm {
     robeG.computeVertexNormals();
     const robe = new THREE.Mesh(robeG, cloak);
     robe.castShadow = true;
-    const belt = new THREE.Mesh(new THREE.TorusGeometry(0.29, 0.035, 8, 32), leather);
+    const belt = new THREE.Mesh(new THREE.TorusGeometry(0.215, 0.025, 12, 48), leather);
     belt.rotation.x = Math.PI / 2;
     belt.scale.z = 0.82;
     belt.position.y = 0.95;
     const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.12, 16), under);
     collar.position.y = 1.47;
-    const headG = new THREE.SphereGeometry(0.155, 32, 24);
-    headG.scale(0.92, 1.08, 0.98);
+    const headG = new THREE.SphereGeometry(0.145, 48, 32);
+    const hp = headG.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < hp.count; i++) {
+      const y = hp.getY(i), jaw = 1 - 0.24 * (1 - THREE.MathUtils.smoothstep(y, -0.14, -0.02));
+      hp.setXYZ(i, hp.getX(i) * 0.88 * jaw, y * 1.22, hp.getZ(i) * 0.92);
+    }
+    headG.computeVertexNormals();
     const head = new THREE.Mesh(headG, skin);
     head.position.y = 1.66;
     head.castShadow = true;
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.07, 8), skin);
-    nose.rotation.x = Math.PI / 2;
-    nose.position.set(0, 1.65, 0.15);
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12), skin);
+    nose.scale.set(0.023, 0.045, 0.035);
+    nose.position.set(0, 1.655, 0.13);
     body.add(robe, belt, collar, head, nose);
     for (const sx of [-1, 1]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 6), new THREE.MeshStandardMaterial({ color: '#111', roughness: 0.2 }));
-      eye.position.set(sx * 0.055, 1.69, 0.135);
-      body.add(eye);
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.018, 20, 12), new THREE.MeshStandardMaterial({ color: '#b9b0a1', roughness: 0.35 }));
+      eye.scale.set(1, 0.55, 0.6);
+      eye.position.set(sx * 0.049, 1.695, 0.118);
+      const iris = new THREE.Mesh(new THREE.SphereGeometry(0.008, 12, 8), new THREE.MeshStandardMaterial({ color: def.id === 'ilsa' ? '#485e60' : '#51382b', roughness: 0.3 }));
+      iris.position.set(sx * 0.049, 1.695, 0.129);
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.0035, 10, 8), new THREE.MeshBasicMaterial({ color: '#080a0d' }));
+      pupil.position.set(sx * 0.049, 1.695, 0.136);
+      const brow = new THREE.Mesh(new THREE.CapsuleGeometry(0.008, 0.035, 4, 8), hair);
+      brow.rotation.z = Math.PI / 2 + sx * 0.12;
+      brow.position.set(sx * 0.052, 1.723, 0.113);
+      const ear = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), skin);
+      ear.scale.set(0.024, 0.038, 0.018); ear.position.set(sx * 0.126, 1.66, 0);
+      body.add(eye, iris, pupil, brow, ear);
+    }
+    const lips = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12), new THREE.MeshStandardMaterial({ color: '#966359', roughness: 0.85 }));
+    lips.scale.set(0.037, 0.009, 0.009); lips.position.set(0, 1.602, 0.123); body.add(lips);
+    const legs: THREE.Group[] = [];
+    for (const sx of [-1, 1]) {
+      const pivot = new THREE.Group();
+      pivot.position.set(sx * 0.11, 0.82, 0);
+      const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.58, 8, 20), under);
+      leg.position.set(0, -0.36, 0);
+      const boot = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.17, 8, 20), leather);
+      boot.rotation.x = Math.PI / 2; boot.scale.set(0.95, 1, 0.8); boot.position.set(0, -0.74, 0.05);
+      leg.castShadow = boot.castShadow = true; pivot.add(leg, boot); body.add(pivot); legs.push(pivot);
     }
     if (def.id === 'seren' || def.id === 'ilsa') {
-      const hood = new THREE.Mesh(new THREE.SphereGeometry(0.205, 28, 16, 0, Math.PI * 2, 0, Math.PI * 0.6), cloak);
-      hood.position.set(0, 1.68, -0.02);
-      hood.rotation.x = -0.35;
+      const hood = new THREE.Mesh(new THREE.SphereGeometry(0.18, 32, 20, 0, Math.PI * 2, 0, Math.PI * 0.46), cloak);
+      hood.position.set(0, 1.715, -0.025);
+      hood.rotation.x = 0.18;
       hood.castShadow = true;
       const cape = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.46, 1.2, 28, 6, true, Math.PI * 0.25, Math.PI * 1.5), addWind(cloak.clone(), 'cloth'));
       cape.position.y = 0.9;
-      cape.rotation.y = Math.PI;
+      cape.rotation.y = 0;
       (cape.material as THREE.Material).side = THREE.DoubleSide;
       cape.castShadow = true;
       body.add(hood, cape);
     } else {
       const hairM = new THREE.Mesh(new THREE.SphereGeometry(0.165, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.55), hair);
-      hairM.position.y = 1.68;
-      hairM.rotation.x = -0.25;
+      hairM.position.y = 1.715;
+      hairM.rotation.x = 0.12;
       body.add(hairM);
     }
     if (def.id === 'ilsa') {
@@ -674,8 +751,36 @@ export class Village extends Realm {
     const wp = WAYPOINTS[def.routine.dusk];
     root.position.set(wp[0], this.groundY(wp[0], wp[1]), wp[1]);
     this.scene.add(root);
-    this.npcs.set(def.id, { def, root, body, label, target: root.position.clone(), armL, armR, ring, walking: false, phase: Math.random() * 6, approachPlayer: false });
+    this.npcs.set(def.id, { def, root, body, label, target: root.position.clone(), armL, armR, legs, ring, walking: false, phase: Math.random() * 6, approachPlayer: false });
+    // Authored MakeHuman characters have real facial topology, textured skin,
+    // fitted garments and articulated hands. Keep the fallback until fully loaded.
+    const view = this.npcs.get(def.id)!;
+    const ready = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`/assets/characters/${def.id}.glb`).then(gltf => {
+      gltf.scene.traverse(o => {
+        o.userData.npcId = def.id;
+        if (!(o as THREE.Mesh).isMesh) return;
+        const mesh = o as THREE.Mesh;
+        mesh.castShadow = mesh.receiveShadow = true;
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const material of materials as THREE.MeshStandardMaterial[]) {
+          if (material.map) material.map.anisotropy = 8;
+          if (material.alphaTest > 0) { material.side = THREE.DoubleSide; material.depthWrite = true; }
+          material.envMapIntensity = .7;
+        }
+      });
+      body.visible = false;
+      root.add(gltf.scene);
+      view.mixer = new THREE.AnimationMixer(gltf.scene);
+      const idle = gltf.animations.find(c => c.name === 'Idle');
+      const walk = gltf.animations.find(c => c.name === 'Walk');
+      if (idle) view.idle = view.mixer.clipAction(idle).play();
+      if (walk) view.walk = view.mixer.clipAction(walk);
+      view.mixer.update(0);
+    }).catch(() => { /* Keep the usable fallback when a download fails. */ });
+    this.characterLoads.push(ready);
   }
+
+  characterLoads: Promise<void>[] = [];
 
   groundY(x: number, z: number) {
     return terrainHeight(x, z);
@@ -706,7 +811,9 @@ export class Village extends Realm {
     this.sun.position.set(...(presets.sunPos as [number, number, number]));
     this.sunWorld = (u.uSunDir.value as THREE.Vector3).clone().multiplyScalar(800);
     this.look.exposure = presets.exp;
-    this.look.godRays = e.timeOfDay === 'night' || e.weather === 'storm' ? 0 : e.timeOfDay === 'day' ? 0.25 : 0.6;
+    this.look.godRays = e.timeOfDay === 'night' || e.weather === 'storm' ? 0 : e.timeOfDay === 'day' ? 0.1 : 0.22;
+    this.look.contrast = 1.08;
+    this.look.saturation = 0.94;
     this.envDirty = true;
     this.sun.color.set(presets.sun);
     this.sun.intensity = presets.sunI * (e.weather === 'storm' || e.weather === 'rain' ? 0.45 : 1);
@@ -720,29 +827,30 @@ export class Village extends Realm {
     if (e.weather === 'storm') fogC.multiplyScalar(0.5);
     // Real photographed sky (HDRI) for dawn/dusk/day when available: it becomes the
     // background AND the image-based light, and the key light follows its sun.
-    const useHdr = !!this.hdr && e.timeOfDay !== 'night' && !e.skyColor && e.weather !== 'storm';
+    const hdr=(e.timeOfDay==='day'?this.dayHdr:undefined)??this.hdr;
+    const useHdr = !!hdr && e.timeOfDay !== 'night' && !e.skyColor && e.weather !== 'storm';
     this.sky.mesh.visible = !useHdr;
-    this.scene.background = useHdr ? this.hdr!.texture : null;
-    this.envTexture = useHdr ? this.hdr!.texture : undefined;
-    this.scene.environmentIntensity = useHdr ? 0.45 : 1;
+    this.scene.background = useHdr ? hdr!.texture : null;
+    this.envTexture = useHdr ? hdr!.texture : undefined;
+    this.scene.environmentIntensity = useHdr ? 0.65 : 1;
     this.scene.backgroundIntensity = 0.9;
     if (useHdr) {
-      const d = this.hdr!.sunDir.clone();
+      const d = hdr!.sunDir.clone();
       if (d.y < 0.06) d.y = 0.06;
       d.normalize();
       this.sun.position.copy(d.clone().multiplyScalar(120));
       this.sunWorld = d.clone().multiplyScalar(800);
-      fogC.copy(this.hdr!.horizon);
+      fogC.copy(hdr!.horizon);
       const lum = fogC.r * 0.2126 + fogC.g * 0.7152 + fogC.b * 0.0722;
       fogC.multiplyScalar(Math.min(1, 0.16 / Math.max(1e-3, lum)));
-      const z = this.hdr!.zenith;
+      const z = hdr!.zenith;
       this.hemi.color.copy(z).multiplyScalar(1 / Math.max(1e-3, z.r, z.g, z.b));
       this.hemi.intensity = 0.12;
       this.sun.intensity = (e.timeOfDay === 'day' ? 5 : 6) * (e.weather === 'rain' ? 0.45 : 1);
       this.sun.color.set(e.timeOfDay === 'day' ? '#fff0dc' : '#ffb070');
       this.look.exposure = e.timeOfDay === 'day' ? 0.7 : 0.85;
-      this.look.contrast = 1.2;
-      this.look.saturation = 1.05;
+      this.look.contrast = 1.08;
+      this.look.saturation = 0.96;
     }
     const fog = this.scene.fog as THREE.FogExp2;
     fog.color.copy(fogC);
@@ -750,6 +858,7 @@ export class Village extends Realm {
     u.uAurora.value = e.weather === 'aurora' ? 1 : 0;
     this.weather.set(e.weather);
     for (const l of this.lanternLights) l.intensity = 8 * presets.lan;
+    for (const flame of this.lampFlames) flame.emissiveIntensity=.1+presets.lan*3;
     M.glassWarm().emissiveIntensity = presets.lan > 0.3 ? 2.2 * presets.lan : 0.15;
     this.ridges.tint(new THREE.Color(presets.bot).lerp(new THREE.Color('#202434'), 0.5), fogC);
   }
@@ -774,6 +883,12 @@ export class Village extends Realm {
 
   update(ctx: FrameCtx) {
     super.update(ctx);
+    if(ctx.active)for(const group of this.foliageLOD)updateAssetLOD(group,ctx.camera.position);
+    if(this.cobbles&&ctx.active)cullCobbles(this.cobbles,ctx.camera.position);
+    if(ctx.active){
+      const step=46/QUALITY.shadowMap,old=this.sun.target.position.clone(),next=old.clone().set(Math.round(ctx.camera.position.x/step)*step,0,Math.round(ctx.camera.position.z/step)*step);
+      this.sun.target.position.copy(next);this.sun.position.add(next.sub(old));
+    }
     const t = ctx.t;
     this.sky.uniforms.uTime.value = t;
     this.sky.uniforms.uLightning.value = this.weather.lightning;
@@ -809,6 +924,15 @@ export class Village extends Realm {
         goal = new THREE.Vector3(wp[0] + wob, 0, wp[1] + Math.cos(t * 0.11 + v.phase) * 1.6);
       }
       const p = v.root.position;
+      // Keep routines and idle wandering outside house footprints; otherwise
+      // villagers (and their conversation camera) can end up inside a wall.
+      const keepOutsideBuildings = (position: THREE.Vector3) => {
+        for (let pass = 0; pass < 2; pass++) for (const house of this.footprints) {
+          const dx = position.x - house.x, dz = position.z - house.z, d = Math.hypot(dx, dz), radius = house.r + .4;
+          if (d < radius) { position.x = house.x + (d ? dx / d : 1) * radius; position.z = house.z + (d ? dz / d : 0) * radius; }
+        }
+      };
+      keepOutsideBuildings(goal);
       const dx = goal.x - p.x, dz = goal.z - p.z;
       const dist = Math.hypot(dx, dz);
       v.walking = !talking && dist > (v.approachPlayer ? 0.1 : 0.6);
@@ -816,14 +940,26 @@ export class Village extends Realm {
         const sp = Math.min(dist, (v.approachPlayer ? 2.2 : 1.3) * ctx.dt);
         p.x += (dx / dist) * sp;
         p.z += (dz / dist) * sp;
+        keepOutsideBuildings(p);
         v.root.rotation.y = lerpAngle(v.root.rotation.y, Math.atan2(dx, dz), Math.min(1, ctx.dt * 6));
       } else if (talking || v.approachPlayer) {
         v.root.rotation.y = lerpAngle(v.root.rotation.y, Math.atan2(cam.x - p.x, cam.z - p.z), Math.min(1, ctx.dt * 5));
       }
       p.y = this.groundY(p.x, p.z);
+      if (v.mixer) {
+        if (v.wasWalking !== v.walking) {
+          const next = v.walking ? v.walk : v.idle, previous = v.walking ? v.idle : v.walk;
+          previous?.fadeOut(.25); next?.reset().fadeIn(.25).play();
+          v.wasWalking = v.walking;
+        }
+        if (v.walk) v.walk.timeScale = v.approachPlayer ? 1.6 : 1;
+        v.mixer.update(ctx.dt);
+        continue;
+      }
       const sw = v.walking ? Math.sin(t * 7 + v.phase) : Math.sin(t * 1.5 + v.phase) * 0.08;
       v.armL.rotation.x = sw * 0.6;
       v.armR.rotation.x = -sw * 0.6;
+      v.legs.forEach((leg, i) => { leg.rotation.x = v.walking ? sw * (i ? 0.35 : -0.35) : 0; });
       if (talking) v.armR.rotation.x = -0.4 + Math.sin(t * 5) * 0.25;
       v.body.position.y = v.walking ? Math.abs(Math.sin(t * 7 + v.phase)) * 0.06 : Math.sin(t * 1.5 + v.phase) * 0.015;
     }

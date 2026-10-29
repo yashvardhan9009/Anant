@@ -21,10 +21,10 @@ const want = (id) => !ONLY || ONLY.includes(id);
 /** Models: id → simplification ratio (fraction of triangles kept) and texture size. */
 export const MODELS = {
   // trees (film-quality scans → heavily simplified for real time)
-  fir_tree_01: { ratio: 0.004, tex: 1024, error: 0.04 },
-  pine_tree_01: { ratio: 0.0018, tex: 1024, error: 0.04 },
-  island_tree_02: { ratio: 0.03, tex: 1024, error: 0.04 },
-  tree_small_02: { ratio: 0.015, tex: 1024, error: 0.04 },
+  fir_tree_01: { ratio: 0.012, tex: 1024, error: 0.003 },
+  pine_tree_01: { ratio: 0.006, tex: 1024, error: 0.003 },
+  island_tree_02: { ratio: 0.07, tex: 1024, error: 0.003 },
+  tree_small_02: { ratio: 0.05, tex: 1024, error: 0.003 },
   dead_tree_trunk: { ratio: 0.08, tex: 1024, error: 0.04 },
   // ground cover & rocks
   shrub_01: { ratio: 0.05, tex: 1024, error: 0.04 },
@@ -52,13 +52,15 @@ export const MODELS = {
 
 /** Scanned PBR surfaces (colour, OpenGL normal, AO/rough/metal packed). */
 export const TEXTURES = {
+  marble_01: '2k', granite_tile_02: '2k', concrete_floor_02: '2k',
   cobblestone_floor_01: '1k', grassy_cobblestone: '1k', plastered_wall_02: '1k', worn_mossy_plasterwall: '1k',
   weathered_planks: '1k', clay_roof_tiles_02: '1k', roof_slates_02: '1k', thatch_roof_angled: '1k',
   forest_ground_04: '1k', leafy_grass: '1k', stone_wall_04: '1k', castle_brick_01: '1k', mossy_rock: '1k', pine_bark: '1k',
+  sand_01:'1k',snow_02:'1k',
 };
 
 /** HDRI skies (equirectangular, used for both background and image-based lighting). */
-export const HDRIS = { kloppenheim_06_puresky: '4k', kloppenheim_02_puresky: '2k', moonless_golf: '2k' };
+export const HDRIS = { kloppenheim_06_puresky: '4k', kloppenheim_02_puresky: '2k', moonless_golf: '2k', kloofendal_48d_partly_cloudy_puresky: '4k' };
 
 function curl(url, dest) {
   mkdirSync(dirname(dest), { recursive: true });
@@ -87,9 +89,9 @@ for (const [id, opt] of Object.entries(MODELS)) {
       for (const [rel, f] of Object.entries(g.include ?? {})) curl(f.url, join(dir, rel));
     }
     mkdirSync(dirname(out), { recursive: true });
-    const args = ['gltf-transform', 'optimize', main, out, '--compress', 'meshopt', '--texture-compress', 'webp', '--texture-size', String(opt.tex), '--simplify', opt.ratio < 1 ? 'true' : 'false'];
+    const args = ['node_modules/@gltf-transform/cli/bin/cli.js', 'optimize', main, out, '--compress', 'meshopt', '--texture-compress', 'webp', '--texture-size', String(opt.tex), '--simplify', opt.ratio < 1 ? 'true' : 'false'];
     if (opt.ratio < 1) args.push('--simplify-ratio', String(opt.ratio), '--simplify-error', String(opt.error ?? 0.01));
-    execFileSync('npx', args, { stdio: ['ignore', 'ignore', 'inherit'] });
+    execFileSync(process.execPath, args, { stdio: ['ignore', 'ignore', 'inherit'] });
     credit(id, 'model');
     console.log(`[assets] model  ${id.padEnd(22)} → ${mb(out)} MB`);
   } catch (e) {
@@ -99,7 +101,7 @@ for (const [id, opt] of Object.entries(MODELS)) {
 
 for (const [id, res] of Object.entries(TEXTURES)) {
   const dir = join(OUT, 'textures', id);
-  if (existsSync(join(dir, 'diff.jpg')) && !FORCE) continue;
+  if (!want(id) || (existsSync(join(dir, 'diff.jpg')) && !FORCE)) continue;
   try {
     const f = api(`files/${id}`);
     curl(f.Diffuse[res].jpg.url, join(dir, 'diff.jpg'));
@@ -114,7 +116,7 @@ for (const [id, res] of Object.entries(TEXTURES)) {
 
 for (const [id, res] of Object.entries(HDRIS)) {
   const out = join(OUT, 'hdri', `${id}.hdr`);
-  if (existsSync(out) && !FORCE) continue;
+  if (!want(id) || (existsSync(out) && !FORCE)) continue;
   try {
     curl(api(`files/${id}`).hdri[res].hdr.url, out);
     credit(id, 'hdri');
@@ -144,5 +146,6 @@ credits.solar_system_scope = { name: 'Planet textures & Milky Way panorama', typ
 
 mkdirSync(OUT, { recursive: true });
 writeFileSync(join(OUT, 'CREDITS.json'), JSON.stringify(credits, null, 2));
-writeFileSync(join(OUT, 'manifest.json'), JSON.stringify({ models: Object.keys(MODELS).filter((m) => existsSync(join(OUT, 'models', `${m}.glb`))), textures: Object.keys(TEXTURES).filter((t) => existsSync(join(OUT, 'textures', t, 'diff.jpg'))), hdris: Object.keys(HDRIS).filter((h) => existsSync(join(OUT, 'hdri', `${h}.hdr`))), space: SPACE.filter((f) => existsSync(join(OUT, 'space', f))) }, null, 2));
+const previousManifest=existsSync(join(OUT,'manifest.json'))?JSON.parse(readFileSync(join(OUT,'manifest.json'),'utf8')):{};
+writeFileSync(join(OUT, 'manifest.json'), JSON.stringify({ ...previousManifest,models: Object.keys(MODELS).filter((m) => existsSync(join(OUT, 'models', `${m}.glb`))), textures: Object.keys(TEXTURES).filter((t) => existsSync(join(OUT, 'textures', t, 'diff.jpg'))), hdris: Object.keys(HDRIS).filter((h) => existsSync(join(OUT, 'hdri', `${h}.hdr`))), space: SPACE.filter((f) => existsSync(join(OUT, 'space', f))) }, null, 2));
 console.log('[assets] done — credits in public/assets/CREDITS.json');

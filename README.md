@@ -1,6 +1,43 @@
 # ANANT — EXPERIENCE THE IMPOSSIBLE.
 
-ANANT is an AI-directed immersive experience engine that runs in the browser. You speak or type an intention and an NVIDIA Nemotron model on **Nebius Token Factory** turns it into **validated, structured commands**. A deterministic engine then executes those commands. The model never runs code.
+The project-wide visual objective and hardware budget are recorded in
+[Rendering target](docs/rendering-target.md). The environment pass adds streamed
+2K scanned surfaces in Cinematic/Ultra, bounded parallax relief, consistent
+triplanar rock normals, more detailed timber/masonry dwellings and a shared
+citadel. Emberfall adds embedded stone paving, caged lanterns, denser nearby
+foliage and a more detailed mountain horizon. Studio uses smaller spatial
+foliage batches and contextual ground dressing. The Nexus has a monumental
+dark Gothic hall, four filled destination vignettes, an overhead galaxy
+astrolabe, engraved bronze, scanned stone, braziers and wet marble that reflects
+the actual scene. Gates still open the existing interactive realms. Earlier
+improvements include a textured animated dragon, Ultra graphics and repaired AI
+command plans. The Studio lists behaviours it cannot simulate.
+
+ANANT is an AI-directed immersive experience engine that runs in the browser. Speak or type an intention; **local Ollama models** or **Nebius Token Factory** turn it into validated commands or a compositional scene plan. A deterministic engine executes the plan. The model never runs code.
+
+## Reality Studio: describe, explore, reshape
+
+Choose **Imagine** in ANANT or **Imagine / past** in Earth. The Studio combines scanned materials and natural assets with procedural architecture, atmospheric lighting, reflective water, volumetric fire, ice, lightning, vortices, portals, fireflies and steam. Free flight is the default: WASD moves, E/Q rises and descends, Shift accelerates, and dragging looks around. Choose **Flying / switch to walk** to return to human eye height. Select an element (keys 1–8), then click in the world to cast; 0 returns to exploration. Water extinguishes fire into steam, ice freezes water, and fire melts ice. These are authored interaction rules and visual approximations, not fluid or combustion solvers.
+
+Type a new scene or check **Refine this scene** to change the current composition. **Undo / Redo**, **Pause time**, instant Daylight/Golden hour/Blue hour/Night lighting, **Cinema**, optional synthesized ambience, and optional browser speech recognition are available. Spoken text can be reviewed before creation. The scene and research references save with the active world; undo history lasts for the current Studio visit. While a request runs you can keep exploring, cancel it, or cast an element. A cancelled or failed generation preserves the current scene.
+
+For **Reconstruct the past**, enter a place and period, or describe them in the wish. ANANT searches public Wikipedia reference articles and supplies the excerpts to the model. The Scene notes panel links the sources and identifies the result as an **artistic reconstruction**. Sources provide context, not verification of geometry or a literal view of the past. If research fails, the UI says so; it does not invent citations. Earth supplies the last selected destination as an editable starting point, and historical scenes open separately from measured Earth terrain.
+
+Cinematic Studio rendering uses photographic HDR skies matched to the key light, environment reflections, contact shading, multisampled HDR rendering, scanned foliage, layered stone paving, volumetric flame and a bounded-rate planar water reflection. Distant trees use projections of the scanned asset to control geometry cost. The foreground uses scanned foliage with wind and approximate leaf backlighting; the landscape adds geometric ground relief, soil/vegetation blending, a ridged heightfield with thermal relaxation, slope-dependent colors and triplanar rock textures. Stone uses world-scale mapping and damp staining. Fire combines turbulent volumetric emission, advected smoke, embers and flickering local illumination. The planar reflection captures nearby architecture and effects; distant foliage uses the environment map. Lighting combines image-based illumination, direct shadows and screen-space contact shading, not full path-traced global illumination. Camera motion accelerates and brakes smoothly; **Create a world** expands the controls and clicking the scene restores the compact play layout.
+
+The composer supports bounded scenes (60 objects, 12 effects) made from the listed assets and primitives. It does not generate arbitrary new meshes, realistic humans, or physically exact versions of every phenomenon. With AI offline, the authored demonstration and casting work, but the UI explicitly says that a requested new scene was not generated.
+
+To use an already installed local model, add to `.env`:
+
+```dotenv
+ANANT_AI_PROVIDER=ollama
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=qwen3.5:9b
+```
+
+Ollama must already be running and that model installed. No API key is required, and ANANT never pulls models. Local AI processes scene prompts on the configured local service; history search terms go to Wikipedia. `ANANT_OFFLINE=1` overrides both providers. Without a local provider or Nebius key, ANANT uses the labeled offline parser.
+
+After building, `node scripts/e2e-experience.mjs` exercises the Studio using a deterministic test fixture. Set `EXPERIENCE_LIVE=1` to additionally exercise the configured model, actual scene refinement and public historical research. The live run records the model, generated plans, source references, measured frame rate, browser errors, screenshots, cancellation, persistence and mobile layout. It does not validate microphone hardware or historical accuracy.
 
 Built for the Nebius × NVIDIA hackathon.
 
@@ -20,14 +57,86 @@ Built for the Nebius × NVIDIA hackathon.
 | “Make me large enough to hold the Sun” → “switch to sandbox mode” → “let me grab the Sun” → “undo” | Your apparent size is separate from your mass. In sandbox mode you carry the Sun with the pointer or your hand, and its planets come with it. Undo, redo and reset work on every manipulation. |
 | “Show me thousands of galaxies” · “Take me to Andromeda” · “Show me galaxies observed by James Webb” | 43,498 real galaxies from the 2MASS Redshift Survey and a 24-object catalogue with SIMBAD coordinates and ESA/Hubble and ESA/Webb imagery. |
 | “Show me a black hole” | Schwarzschild null geodesics integrated per pixel, lensing the real Milky Way panorama. |
+| “Explore Earth” or **Explore Earth** in the top bar | Fly from orbit into streamed satellite/aerial imagery over measured elevation. Search 34,188 cities or enter latitude, longitude; visit the Himalayas, Grand Canyon, New York, Mumbai and the Alps. |
 | “Open a portal to a universe with stronger gravity” | A **hypothetical** universe where G is 4× ours. The same solar system is recomputed under that law, and every card labels it HYPOTHETICAL. |
 | “Open a portal to a fantasy kingdom” → talk to the villagers | Emberfall, a living story village. Its NPCs remember you, and its mystery can be solved. |
 
 Hand gestures (MediaPipe, optional) control grab, pinch-scale, rotate and drawing a circle to open a portal. Mouse and keyboard work everywhere:
 - **WASD** moves.
-- **C** toggles fly mode.
+- **Free flight is the default** in the main realms, Studio and Earth. **E / Q** rises and descends; **Shift** travels faster.
+- **C** switches the main realms between flight and guided walking/orbit. Studio and Earth have explicit travel controls.
 - **Z** / **X** shrink and grow you.
 - **Shift+drag** grabs a body.
+- **P** opens Cinema mode, hiding the interface and labels; **Esc** restores them.
+
+Choose **Cinematic**, **Ultra**, **Balanced**, or **Performance** in the top bar. Cinematic is the default: AgX tone mapping, restrained bloom, contact shading, detailed shadows and higher-quality orbital/black-hole rendering. Ultra increases shadow/reflection resolution and relief sampling. Balanced reduces rendering cost; Performance uses simpler foliage and effects. Balanced/Performance retain 1K surfaces and omit the expensive relief path and geometric paving. All tiers run the same physics. Changing quality saves the world before reloading. URL overrides are `?quality=cinematic`, `?quality=ultra`, `?quality=balanced` and `?quality=performance`; the older `?lowfx` still selects Performance.
+
+## Detailed Earth and scene assets
+
+**Earth** opens a dedicated Cesium geospatial view in free flight. Choose **Explore** for map controls: drag to pan, scroll to zoom,
+Ctrl+drag to tilt, and use **Orbit** for a slow camera move. **Cinema** hides the
+controls while keeping data credits visible. **Start scenic flight** eases into a
+terrain-following cruise. **Fly freely** uses WASD, drag-to-look, E/Q for height,
+and Shift for faster travel. **Walk terrain** places the camera 1.7 m above loaded
+ground, limits steep slopes and uses a human walking pace. It requires a loaded
+surface within 30 km of the camera. Touch direction buttons are also available.
+**Esc** first stops travel or exits Cinema, then returns to the same ANANT world;
+its renderer, input and ambient soundtrack are suspended during Earth exploration.
+
+Daylight, Golden hour and Blue hour simulate local solar time on a midsummer day.
+Depth-aware haze supplies distance cues. Optional wind responds to movement and
+heading; it is synthesized ambience, not a recording of the location. Full screen
+is available where permitted by the browser. Reduced-motion preferences remove
+automatic cruise and flight transitions. Village walking now has acceleration,
+gentle gait, footsteps and building collision; reduced motion disables the gait.
+
+The default uses public data without API keys: EOX Sentinel-2 cloudless 2016
+(approximately 10 m globally), USGS/USDA aerial imagery (approximately 1 m where
+available in the continental US), and Mapzen elevation. Detail and acquisition
+dates vary. These are photographs over terrain, **not reconstructed 3D cities**.
+A packaged orbital texture stays visible if tile services are slow. Internet is
+required for streamed detail. City search uses a bundled GeoNames index and
+does not send typed searches to an external geocoder.
+
+EOX imagery passes through a fixed-source server route with tile-coordinate
+validation, a 16 MB memory cache, request limits and timeouts. Elevation and USGS
+imagery stream directly to the browser. The Cesium viewer is loaded only when
+Earth is opened; its workers are copied by `postinstall`, `dev`, and `build`.
+
+For actual **Google Photorealistic 3D Tiles**, optionally set
+`GOOGLE_MAPS_BROWSER_KEY` in `.env` after enabling Map Tiles API in your own Google
+Maps project. Restrict that key to your site's HTTP referrers and the Map Tiles
+API; it is intentionally browser-visible. Leave it empty for public data. Google
+mode offers bookmarks and coordinates, disables the non-Google city index, and
+preserves Google's credits. Google mode requires provider access and has not
+been live-verified without a configured key.
+
+Emberfall now uses textured, rigged MakeHuman characters with idle and walking
+animations, recessed windows, timber shutters, layered roof tiles and retained
+foliage detail. Far trees use projections of the scanned assets to limit geometry
+cost. The Nexus has clustered piers, pointed vaults, moving inscribed banners,
+layered gate masonry and metal, a scanned central figure and a raised dais.
+Castle and atomic vignettes have real 3D geometry behind circular apertures;
+the accretion illustration and galaxy dust fields use authored shaders. The
+vignettes are artistic destination symbols, not live realm previews. Select a
+gate to open its real travel portal. Walking follows both the dais and rotated
+gate steps, with collision around the figure and gate piers. Cinema mode hides
+scientific orbit guides in the solar system.
+These remain real-time rendered scenes, with quality limited by the assets and
+the device; they are not indistinguishable from live footage.
+
+Asset notices: [Earth data](public/assets/earth/CREDITS.md),
+[characters](public/assets/characters/LICENSE.txt),
+[Poly Haven and planetary maps](public/assets/CREDITS.json).
+Character rebuild instructions: [character assets](docs/character-assets.md).
+To verify live Earth providers after building: `node scripts/e2e-earth.mjs`.
+To inspect Nexus interaction and rendering at all graphics tiers after building:
+`node scripts/e2e-nexus.mjs`. It uses an isolated temporary world database.
+For daylight/night Emberfall, close paving, spawned citadel/island, forest,
+sand/snow and all graphics paths, run `node scripts/e2e-environment.mjs`.
+The Studio environments in that check are explicit fixtures, not AI generations.
+Rebuild the versioned CC0 detail maps with `node scripts/fetch-detail-surfaces.mjs`;
+[their source manifest](public/assets/detail-v1/sources.json) records provenance.
 
 ## Honesty labels
 
@@ -46,17 +155,21 @@ When the AI cannot do something, it says so and does not pretend.
 
 ## Running it
 
+Use **Node.js 22.13 or newer** (the server uses built-in SQLite). These commands work in PowerShell and on macOS/Linux:
+
 ```bash
-npm install            # also copies the MediaPipe wasm and downloads the hand model
-cp .env.example .env   # optional: add NEBIUS_API_KEY
+npm ci                 # also copies the MediaPipe wasm and downloads the hand model
 npm run dev            # API on :8787, Vite on :5173
 # or
-npm run build && npm start   # production server on :8787
+npm run build
+npm start              # production server on :8787
 ```
+
+Optionally copy `.env.example` to `.env` and add `NEBIUS_API_KEY`. The offline parser works without an API key.
 
 | Variable | Purpose |
 |---|---|
-| `NEBIUS_API_KEY` | Enables Nemotron on Nebius Token Factory. Without it, ANANT uses a deterministic offline parser and the UI labels it **OFFLINE PARSER**. |
+| `NEBIUS_API_KEY` | Enables Nemotron on Nebius Token Factory. Without it or a configured Ollama provider, ANANT uses a deterministic offline parser and the UI labels it **OFFLINE PARSER**. |
 | `NEBIUS_BASE_URL` | Defaults to `https://api.tokenfactory.nebius.com/v1`. |
 | `ANANT_MODEL` | Pins a model. Otherwise the first available of `nvidia/Llama-3_3-Nemotron-Super-49B-v1_5`, `nvidia/NVIDIA-Nemotron-Nano-9B-v2`, and so on is used. |
 | `ANANT_DB` | SQLite file for saved worlds (default `data/anant.db`). |
@@ -64,7 +177,7 @@ npm run build && npm start   # production server on :8787
 Other scripts:
 - `npm test` runs the unit tests (Vitest).
 - `npm run typecheck` runs the TypeScript compiler.
-- `npm run e2e` drives every demo scene in headless Chromium and writes `test-results/e2e.json` plus screenshots.
+- Run `npx playwright install chromium` once, then `npm run e2e` to build and drive every demo scene in headless Chromium. It writes `test-results/e2e.json` plus screenshots, uses a separate temporary database, forces the offline parser, and shuts down its own server. The default test quality is Performance; set `E2E_QUALITY=cinematic` for visual review, or `E2E_SOFTWARE=1` to force SwiftShader. In PowerShell, set these with `$env:E2E_QUALITY='cinematic'` before running the command. The report records the actual GPU/backend.
 - `node scripts/fetch-assets.mjs` and `node scripts/build-astro.mjs` re-download and rebuild the art and astronomy data, which are already committed under `public/assets`.
 
 ## Architecture
@@ -93,23 +206,31 @@ voice / text / gesture
 
 ## Verification
 
-- 107 unit tests cover:
+- 143 unit tests cover:
   - command validation and the reducer;
   - physics (energy conservation, orbital elements, invertible display compression);
   - hydrogen normalisation;
   - the parser, director repair, story, gestures and persistence;
   - scale, the astronomy catalogue, manipulation with undo, and the multiverse.
+  - saved-world isolation, pending gesture undo, unpause/unfreeze, and moving-subject camera tracking.
+  - Earth tile boundaries, coordinate input and terrain height decoding.
+  - frame-rate-independent acceleration, braking, default free flight, walking speed and obstacle collision.
+  - bounded scene composition, additive edits, grounded layouts, elemental interactions, local AI configuration and historical source handling.
 - `npm run e2e` walks the full demo, including the directive scenes, in Chromium:
   - microscopic water, the galaxy field and Andromeda;
   - holding, moving and undoing the Sun;
   - the multiverse portal;
   - a page reload that checks persistence.
+  - switching saved worlds, reloading the selected world, and Cinema keyboard controls.
+- GitHub Actions runs type checking, unit tests and production builds on Windows and Ubuntu with Node 22.
 
 ## Known limitations
 
-- **No live Nemotron run is recorded here.** The development container had no `NEBIUS_API_KEY`, so every verification ran on the offline parser. The Nebius endpoint was reachable. The Nemotron path (JSON extraction, one repair attempt, schema validation) is covered by unit tests with a mocked API.
-- **No GPU frame-rate measurement.** Rendering was verified in headless Chromium on SwiftShader (CPU), at about 2–30 fps depending on the scene. These numbers are not representative of a GPU, and no frame rate was measured on real GPU hardware. The renderer adapts its resolution, and `?lowfx` selects a lighter tier.
+- **Live local AI is now exercised separately** by the opt-in Studio browser test: actual scene creation, additive refinement and public historical research. Results record the configured model and latency.
+- **Original baseline: no live Nemotron run was recorded.** The development container had no `NEBIUS_API_KEY`, so every verification ran on the offline parser. The Nebius endpoint was reachable. The Nemotron path (JSON extraction, one repair attempt, schema validation) is covered by unit tests with a mocked API.
+- **Rendering cost varies by scene and GPU.** The cinematic revision was exercised in headless Chromium on Intel integrated graphics through Direct3D 11. The detailed village and galaxy scenes can run below 30 fps on that hardware; use Balanced or Performance when responsiveness matters more than visual detail. Cinematic keeps at least native pixel density. These measurements are not an RTX benchmark.
 - **Visual exaggeration.**
+  - Characters use textured MakeHuman meshes and animation; buildings remain procedural geometry. These are rendered game assets, not scanned people or film-production assets.
   - Solar-system distances are compressed (∝√r) and planets are drawn far too large.
   - Galaxy-field distances come from redshift (H₀ = 70), so peculiar velocities smear clusters.
   - Named galaxies are image impostors, not 3D models.
@@ -124,7 +245,9 @@ voice / text / gesture
 - **2MASS Redshift Survey**, Huchra et al. 2012, ApJS 199, 26 (via VizieR J/ApJS/199/26).
 - **SIMBAD** astronomical database, CDS Strasbourg.
 - **MediaPipe Hand Landmarker** (Apache-2.0), Google.
-- Rendering uses Three.js (MIT); validation uses Zod (MIT).
+- **MakeHuman** (CC0 core assets) and CMU motion capture: character source notes are in `docs/character-assets.md` and `public/assets/characters/LICENSE.txt`.
+- **EOX Sentinel-2 cloudless 2016**, **USGS / USDA NAIP**, **Mapzen terrain** and **GeoNames**: Earth source and licence notices are in `public/assets/earth/CREDITS.md`; provider attribution remains visible in the viewer.
+- Rendering uses Three.js (MIT) and CesiumJS (Apache-2.0); validation uses Zod (MIT).
 
 ## License
 

@@ -197,6 +197,12 @@ export function parseIntent(input: string, world: WorldState): ParseOutput {
     if (/(let go|drop it|release (it|the)|put it down)/.test(t)) { push({ op: 'cosmos_grab', release: true }); continue; }
     const grab = t.match(/(?:grab|pick up|hold|let me (?:grab|hold|take)|take hold of|catch)\s+(?:the\s+)?(sun|mercury|venus|earth|mars|jupiter|saturn|uranus|neptune|star a|star b)\b/);
     if (grab && !/(large|big|tall) enough|make me|in my hands?/.test(t)) { ensureRealm('cosmos'); push({ op: 'cosmos_grab', target: grab[1] }); continue; }
+    const encounter=t.match(/(?:bring|move|put|place|take)\s+(?:the\s+)?(mercury|venus|earth|mars|jupiter|saturn|uranus|neptune)\b.*?(?:near|toward|towards|beside|next to|closer to|at)\s+(?:the\s+)?(?:black\s*hole)/);
+    if(encounter) { ensureRealm('cosmos'); const distance=t.match(/(\d+(?:\.\d+)?)\s*(?:r_s|rs|schwarzschild radii)/);
+      push({op:'cosmos_black_hole',show:true,companion:encounter[1],distance_rs:distance?Math.max(4,Math.min(80,+distance[1])):22});continue; }
+    if(world.cosmos.blackHoleCompanion && /(?:closer|nearer|farther|further)\b/.test(t) && /(?:earth|planet|it|black\s*hole)/.test(t)) {
+      ensureRealm('cosmos');push({op:'cosmos_black_hole',show:true,distance_rs:Math.max(4,Math.min(80,world.cosmos.blackHoleCompanion.distanceRs*(/farther|further/.test(t)?1.4:.7)))});continue;
+    }
     const moveT = t.match(/move (?:the\s+)?(\w+) (?:closer to|toward|towards|near) (?:the\s+)?(\w+)/);
     if (moveT && PLANET_NAMES.test(` ${moveT[1]} `)) { ensureRealm('cosmos'); push({ op: 'cosmos_move_body', target: moveT[1], toward: moveT[2], fraction: 0.4 }); continue; }
     const orbitT = t.match(/(?:put|move|place) (?:the\s+)?(\w+) (?:in|into|on) (?:an? )?(?:different |new |wider |circular )?orbit(?: at (\d+(?:\.\d+)?) ?au)?/);
@@ -320,11 +326,11 @@ export function parseIntent(input: string, world: WorldState): ParseOutput {
       out.unsupported.push({ request: raw, reason: `Moons are not simulated as separate bodies yet, so ${moon[0].toUpperCase() + moon.slice(1)} can't be visited directly.`, suggestion: `Flying to ${parent[0].toUpperCase() + parent.slice(1)}, its parent planet, instead.` });
       continue;
     }
-    if ((realm === 'cosmos' || /simulation|orbit/.test(t)) && /(slow|speed|faster|pause|resume|unpause|play|time ?scale|trails?)/.test(t) && !/time stand|freeze/.test(t)) {
+    if ((realm === 'cosmos' || realm === 'heavy' || /simulation|orbit/.test(t)) && /(slow|speed|faster|pause|resume|unpause|play|time ?scale|trails?)/.test(t) && !/time stand|freeze/.test(t)) {
       const cur = world.cosmos.timeScale;
       if (/trail/.test(t)) push({ op: 'cosmos_set_sim', trails: !/(hide|remove|off|no)/.test(t) });
-      else if (/pause|stop/.test(t)) push({ op: 'cosmos_set_sim', paused: true });
-      else if (/(resume|unpause|play|continue)/.test(t)) push({ op: 'cosmos_set_sim', paused: false });
+      else if (/\b(resume|unpause|play|continue)\b/.test(t)) push({ op: 'cosmos_set_sim', paused: false });
+      else if (/\b(pause|stop)\b/.test(t)) push({ op: 'cosmos_set_sim', paused: true });
       else if (/slow/.test(t)) push({ op: 'cosmos_set_sim', time_scale: +Math.max(0.02, cur / multiplierFrom(t, 3)).toFixed(3), paused: false });
       else push({ op: 'cosmos_set_sim', time_scale: +Math.min(50, cur * multiplierFrom(t, 3)).toFixed(3), paused: false });
       continue;
@@ -336,7 +342,7 @@ export function parseIntent(input: string, world: WorldState): ParseOutput {
     }
 
     // ——— time ———
-    if (/(freeze|stop) time|time (stand|stop)|pause time/.test(t)) { push({ op: 'set_time', frozen: true }); continue; }
+    if (/\b(freeze|stop) time|time (stand|stop)|\bpause time/.test(t)) { push({ op: 'set_time', frozen: true }); continue; }
     if (/(unfreeze|resume|restart|start) time|time (flow|move|resume)/.test(t)) { push({ op: 'set_time', frozen: false }); continue; }
     if (/(slow|speed).*(time|everything|world)|time.*(slow|fast)/.test(t)) {
       push({ op: 'set_time', scale: /slow/.test(t) ? 0.3 : 3, frozen: false });

@@ -57,6 +57,7 @@ export interface HistoryEntry {
 }
 
 export interface WorldState {
+  experience?: import('./experience').ExperienceReply;
   schema: 1;
   id: string;
   name: string;
@@ -85,6 +86,7 @@ export interface WorldState {
     paused: boolean;
     trails: boolean;
     blackHole: boolean;
+    blackHoleCompanion?: { bodyId: string; distanceRs: number };
     /** bumps when bodies are moved, so the live simulation reloads positions */
     revision?: number;
     /** sandbox = free manipulation; physics = moves only change initial conditions */
@@ -143,7 +145,7 @@ const PRETTY: Record<ObjectKind, string> = {
   orb: 'Orb', dragon: 'Dragon', monolith: 'Monolith', lantern: 'Lantern', statue: 'Statue', bridge: 'Bridge',
 };
 
-export function createWorld(name = 'My Universe', id = `world-${Date.now().toString(36)}`): WorldState {
+export function createWorld(name = 'My Universe', id = `world-${crypto.randomUUID()}`): WorldState {
   const now = Date.now();
   return {
     schema: 1,
@@ -315,7 +317,7 @@ export function execute(prev: WorldState, cmd: Command, ctx: ExecContext = {}): 
         scale: cmd.scale ?? (cmd.kind === 'floating_island' ? 2.2 : cmd.kind === 'castle' ? 1.6 : 1),
         color: cmd.color ?? KIND_COLORS[cmd.kind],
         glow: cmd.glow ?? ['sword', 'crystal', 'orb', 'lantern'].includes(cmd.kind),
-        floating: cmd.floating ?? ['floating_island', 'orb', 'crystal'].includes(cmd.kind),
+        floating: cmd.floating ?? ['floating_island', 'orb', 'crystal', 'dragon'].includes(cmd.kind),
         createdAt: now,
       };
       s.objects.push(obj);
@@ -571,8 +573,17 @@ export function execute(prev: WorldState, cmd: Command, ctx: ExecContext = {}): 
       break;
     }
     case 'cosmos_black_hole': {
+      if(cmd.companion) {
+        const body=resolveBody(s,cmd.companion);
+        if(!body || body.kind==='star') { result=fail(cmd.op,`Choose a planet in the current system to view near the black hole.`);break; }
+        s.cosmos.blackHoleCompanion={bodyId:body.id,distanceRs:cmd.distance_rs??22};
+      } else if(cmd.distance_rs!==undefined && s.cosmos.blackHoleCompanion) s.cosmos.blackHoleCompanion.distanceRs=cmd.distance_rs;
+      if(cmd.clear_companion) s.cosmos.blackHoleCompanion=undefined;
       s.cosmos.blackHole = cmd.show;
-      result = { ok: true, op: cmd.op, message: cmd.show ? 'A Schwarzschild black hole fills the sky. Light bends around it.' : 'The black hole fades; the star system returns.' };
+      const encounter=s.cosmos.blackHoleCompanion;
+      result = { ok: true, op: cmd.op, message: cmd.show ? encounter
+        ? `Viewing ${s.cosmos.bodies.find(b=>b.id===encounter.bodyId)?.name} at ${encounter.distanceRs} Schwarzschild radii. Planet size is enlarged for visibility; this is an illustrative encounter, without tidal destruction or orbital evolution.`
+        : 'A Schwarzschild black hole fills the sky. Light bends around it.' : 'The black hole fades; the star system returns.' };
       break;
     }
     case 'camera_focus': {
@@ -676,7 +687,7 @@ export function summarizeWorld(s: WorldState) {
     environment: s.env[s.activeRealm],
     time: s.time,
     atom: { n: s.atom.n, l: s.atom.l, m: s.atom.m, orbital: orbitalName(s.atom.n, s.atom.l, s.atom.m), scale: s.atom.scale },
-    cosmos: s.activeRealm === 'cosmos' ? { preset: s.cosmos.preset, bodies: s.cosmos.bodies.map((b) => `${b.name}(${b.mass.toExponential(2)} M☉)`), timeScale: s.cosmos.timeScale, paused: s.cosmos.paused, blackHole: s.cosmos.blackHole } : undefined,
+    cosmos: s.activeRealm === 'cosmos' ? { preset: s.cosmos.preset, bodies: s.cosmos.bodies.map((b) => `${b.name}(${b.mass.toExponential(2)} M☉)`), timeScale: s.cosmos.timeScale, paused: s.cosmos.paused, blackHole: s.cosmos.blackHole, blackHoleCompanion:s.cosmos.blackHoleCompanion } : undefined,
     village: s.activeRealm === 'village' ? { npcs: ['Captain Ilsa (watch captain)', 'Maera (innkeeper)', 'Doran (blacksmith)', 'Seren (herbalist)'], talkingTo: s.story.activeConversation, outcome: s.story.outcome?.kind } : undefined,
     observerSize: describeSize(s.observer?.size ?? HUMAN),
     recent: s.history.slice(-5).map((h) => h.summary),

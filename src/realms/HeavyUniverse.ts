@@ -40,20 +40,24 @@ export class HeavyUniverse extends Cosmos {
   info(s: WorldState): InfoCard {
     const base = super.info(s);
     const d = derived(U);
+    const g = U.G * s.env.heavy.gravity;
+    const earth = this.sim.index('earth');
+    const orbit = earth >= 0 && g > 0 ? this.sim.orbitalElements(earth, this.sim.index('sun')) : undefined;
+    const year = orbit && orbit.e < 1 && Number.isFinite(orbit.period) ? `${(orbit.period * 365.25).toFixed(0)} days` : 'unbound';
     return {
       title: U.name,
       mode: 'HYPOTHETICAL UNIVERSE',
-      subtitle: `${U.premise} Planets orbit ${d.orbitalSpeed.toFixed(0)}× faster; a year on Earth′ lasts ${d.earthYearDays.toFixed(0)} days.`,
+      subtitle: s.env.heavy.gravity === 1 ? `${U.premise} Initially, Earth′ takes ${d.earthYearDays.toFixed(0)} days to orbit.` : `You changed gravity to ${g}× ours. Existing velocities are retained; the live orbit responds to the new force.`,
       accuracy: [
-        { tag: 'HYPOTHETICAL', text: `Not our universe. G here is ${U.G}× the measured value — a "what if", not an observation.` },
+        { tag: 'HYPOTHETICAL', text: `Not our universe. G here is ${g}× the measured value — a "what if", not an observation.` },
         { tag: 'SIMULATION', text: 'The same Newtonian N-body integrator as our Cosmos, run with the stronger G. Orbits, periods and energy are computed live.' },
-        { tag: 'MODEL', text: `Star brightness from stellar homology (L ∝ G⁴M³): about ${d.luminosity}× brighter, burning out in ~${formatYears(d.sunLifetimeYr)} instead of ~10 billion. Order-of-magnitude only.` },
+        { tag: 'MODEL', text: `At baseline G×4, stellar homology (L ∝ G⁴M³) predicts about ${d.luminosity}× the brightness and ~${formatYears(d.sunLifetimeYr)} lifetime instead of ~10 billion. This estimate is not recomputed when you edit gravity.` },
         { tag: 'ARTISTIC', text: 'The star’s blue-white colour and the compressed distances are visual choices.' },
       ],
       stats: [
         { label: 'G', value: `${U.G * s.env.heavy.gravity}× ours` },
-        { label: 'Year on Earth′', value: `${d.earthYearDays.toFixed(0)} days` },
-        { label: 'Sun′ lifetime', value: `~${formatYears(d.sunLifetimeYr)}` },
+        { label: 'Year on Earth′ (live orbit)', value: year },
+        { label: 'Sun′ lifetime (baseline G×4)', value: `~${formatYears(d.sunLifetimeYr)}` },
         ...base.stats.filter((x) => x.label !== 'Gravity (G)'),
       ],
       extraHtml: base.extraHtml,
