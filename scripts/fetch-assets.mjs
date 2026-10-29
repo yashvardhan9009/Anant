@@ -56,6 +56,7 @@ export const TEXTURES = {
   cobblestone_floor_01: '1k', grassy_cobblestone: '1k', plastered_wall_02: '1k', worn_mossy_plasterwall: '1k',
   weathered_planks: '1k', clay_roof_tiles_02: '1k', roof_slates_02: '1k', thatch_roof_angled: '1k',
   forest_ground_04: '1k', leafy_grass: '1k', stone_wall_04: '1k', castle_brick_01: '1k', mossy_rock: '1k', pine_bark: '1k',
+  sand_01:'1k',snow_02:'1k',
 };
 
 /** HDRI skies (equirectangular, used for both background and image-based lighting). */
@@ -145,5 +146,6 @@ credits.solar_system_scope = { name: 'Planet textures & Milky Way panorama', typ
 
 mkdirSync(OUT, { recursive: true });
 writeFileSync(join(OUT, 'CREDITS.json'), JSON.stringify(credits, null, 2));
-writeFileSync(join(OUT, 'manifest.json'), JSON.stringify({ models: Object.keys(MODELS).filter((m) => existsSync(join(OUT, 'models', `${m}.glb`))), textures: Object.keys(TEXTURES).filter((t) => existsSync(join(OUT, 'textures', t, 'diff.jpg'))), hdris: Object.keys(HDRIS).filter((h) => existsSync(join(OUT, 'hdri', `${h}.hdr`))), space: SPACE.filter((f) => existsSync(join(OUT, 'space', f))) }, null, 2));
+const previousManifest=existsSync(join(OUT,'manifest.json'))?JSON.parse(readFileSync(join(OUT,'manifest.json'),'utf8')):{};
+writeFileSync(join(OUT, 'manifest.json'), JSON.stringify({ ...previousManifest,models: Object.keys(MODELS).filter((m) => existsSync(join(OUT, 'models', `${m}.glb`))), textures: Object.keys(TEXTURES).filter((t) => existsSync(join(OUT, 'textures', t, 'diff.jpg'))), hdris: Object.keys(HDRIS).filter((h) => existsSync(join(OUT, 'hdri', `${h}.hdr`))), space: SPACE.filter((f) => existsSync(join(OUT, 'space', f))) }, null, 2));
 console.log('[assets] done — credits in public/assets/CREDITS.json');

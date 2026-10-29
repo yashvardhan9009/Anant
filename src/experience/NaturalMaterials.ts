@@ -26,6 +26,8 @@ export function naturalFoliage(
 /** World-scale stone stops tiny capitals and long shafts stretching the same
  * UV patch. Low-level damp staining and mottling break up repeated modules. */
 export function weatherStone(material: T.MeshStandardMaterial) {
+  material.userData.worldProjection = true;
+  material.userData.surfaceRelief = false;
   material.onBeforeCompile = (shader) => {
     shader.vertexShader =
       "varying vec3 stoneWorld;varying vec3 stoneNormal;\n" +
@@ -37,7 +39,29 @@ export function weatherStone(material: T.MeshStandardMaterial) {
       #ifdef USE_INSTANCING
       stonePosition=instanceMatrix*stonePosition;
       #endif
-      stoneWorld=(modelMatrix*stonePosition).xyz;stoneNormal=normalize(mat3(modelMatrix)*normal);
+      stoneWorld=(modelMatrix*stonePosition).xyz;stoneNormal=inverseTransformDirection(transformedNormal,viewMatrix);
+    `,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <normal_fragment_maps>",
+        `
+      #ifdef USE_NORMALMAP
+      vec3 gn=normalize(stoneNormal),nw=pow(abs(gn),vec3(4.));nw/=max(.001,nw.x+nw.y+nw.z);
+      vec3 nx=texture2D(normalMap,stoneWorld.yz*.42).xyz*2.-1.;vec3 ny=texture2D(normalMap,stoneWorld.xz*.42).xyz*2.-1.;vec3 nz=texture2D(normalMap,stoneWorld.xy*.42).xyz*2.-1.;
+      nx=vec3(nx.xy*normalScale+gn.zy,abs(nx.z)*gn.x);ny=vec3(ny.xy*normalScale+gn.xz,abs(ny.z)*gn.y);nz=vec3(nz.xy*normalScale+gn.xy,abs(nz.z)*gn.z);
+      normal=normalize(mat3(viewMatrix)*(nx.zyx*nw.x+ny.xzy*nw.y+nz*nw.z));
+      #endif
+    `,
+      )
+      .replace(
+        "#include <roughnessmap_fragment>",
+        `
+      float roughnessFactor=roughness;
+      #ifdef USE_ROUGHNESSMAP
+      vec3 rw=pow(abs(normalize(stoneNormal)),vec3(4.));rw/=max(.001,rw.x+rw.y+rw.z);
+      roughnessFactor*=texture2D(roughnessMap,stoneWorld.yz*.42).g*rw.x+texture2D(roughnessMap,stoneWorld.xz*.42).g*rw.y+texture2D(roughnessMap,stoneWorld.xy*.42).g*rw.z;
+      #endif
     `,
       );
     shader.fragmentShader =

@@ -447,5 +447,23 @@
     "source": "https://sketchfab.com/3d-models/animated-dragon-three-motion-loops-eca98cf6cd084c1596cecf716e110c29",
     "download": "https://github.com/sceneview/sceneview/blob/main/samples/web-demo/site/models/animated_dragon.glb",
     "modifications": "Converted specular/glossiness to metallic/roughness; WebP maps and lossless meshopt compression. Skeleton and authored animation retained. Runtime scale and colour tint."
+  },
+  "sand_01": {
+    "name": "Sand 01",
+    "type": "texture",
+    "authors": [
+      "Rob Tuytel"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/sand_01"
+  },
+  "snow_02": {
+    "name": "Snow 02",
+    "type": "texture",
+    "authors": [
+      "Rob Tuytel"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/snow_02"
   }
 }

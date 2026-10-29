@@ -3,6 +3,7 @@ import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeom
 import { assets, place } from "../engine/assets";
 import { naturalFoliage, weatherStone } from "./NaturalMaterials";
 import type { ScenePlan } from "../../shared/experience";
+import { QUALITY } from "../engine/quality";
 
 /** Deterministic environmental detail; the scene plan still controls the layout. */
 export async function dressEnvironment(
@@ -11,6 +12,7 @@ export async function dressEnvironment(
   heightAt: (x: number, z: number) => number = () => 0,
 ): Promise<T.Group> {
   const group = new T.Group();
+  group.name = "Contextual environment dressing";
   let seed = 74291;
   const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const wooded =
@@ -38,9 +40,13 @@ export async function dressEnvironment(
             .scale(new T.Vector3().setScalar(height / Math.max(0.01, size.y))),
         );
     }
+    const tree = (height ?? 0) > 4;
     const loaded = cards
       ? await assets.impostors(id, transforms)
-      : await assets.instanced(id, transforms, { shadows: !foliage });
+      : await assets.instanced(id, transforms, {
+          shadows: tree || !foliage,
+          maxDistance: foliage && !tree ? 24 : undefined,
+        });
     if (!loaded) return;
     // AssetLibrary retains its sources for other realms. Own render resources here.
     loaded.traverse((o) => {
@@ -57,7 +63,7 @@ export async function dressEnvironment(
               m.alphaToCoverage = true;
               m.side = T.DoubleSide;
             }
-            if (foliage || cards) naturalFoliage(m, cards);
+            if (foliage || cards || tree) naturalFoliage(m, cards || tree);
           }
         }
         o.material = Array.isArray(o.material) ? mats : mats[0];
@@ -83,11 +89,47 @@ export async function dressEnvironment(
         ),
       );
     }
-    for (let i = 0; i < 540; i++) {
+    const near: T.Matrix4[] = [];
+    for (let i = 0; i < (QUALITY.low ? 3 : 12); i++) {
+      const x = (i % 2 ? 1 : -1) * (11 + random() * 17),
+        z = -8 - random() * 28;
+      if (
+        plan.objects.some(
+          (o) =>
+            Math.hypot(o.position[0] - x, o.position[2] - z) <
+            Math.max(...o.scale) * 2 + 3,
+        )
+      )
+        continue;
+      near.push(place(x, 0, z, random() * 6.28, 0.8 + random() * 0.4));
+    }
+    await instance(
+      "island_tree_02",
+      near.filter((_, i) => i % 2 === 0),
+      true,
+      12,
+    );
+    if (!alive()) return group;
+    await instance(
+      "tree_small_02",
+      near.filter((_, i) => i % 2 === 1),
+      true,
+      10,
+    );
+    if (!alive()) return group;
+    for (let i = 0; i < (QUALITY.low ? 160 : 1300); i++) {
       const side = i % 2 ? 1 : -1,
-        x = side * (8.5 + Math.pow(random(), 1.6) * 32),
+        x = side * (4.5 + Math.pow(random(), 1.6) * 32),
         z = random() * 85 - 55;
-      if (Math.abs(x) < 8 && z > -45) continue;
+      if (
+        plan.objects.some(
+          (o) =>
+            o.kind !== "tree" &&
+            Math.hypot(x - o.position[0], z - o.position[2]) <
+              Math.max(o.scale[0], o.scale[2]) * 1.8 + 1,
+        )
+      )
+        continue;
       const s = 0.5 + random() * 1.2;
       grass.push(place(x, 0, z, random() * 6.28, s));
       if (i % 7 === 0)
@@ -123,29 +165,39 @@ export async function dressEnvironment(
       true,
     );
     if (!alive()) return group;
-    await instance("grass_medium_01", grass, true, 0.6);
+    await instance("grass_medium_01", grass, true, 0.45);
     if (!alive()) return group;
     await instance("fern_02", ferns, true, 0.9);
     if (!alive()) return group;
     await instance("rock_moss_set_01", rocks, false, 2);
   }
-  if (plan.environment.ground === "stone") {
+  if (
+    plan.environment.ground === "stone" &&
+    plan.objects.filter((o) => ["column", "house", "arch"].includes(o.kind))
+      .length >= 3
+  ) {
     const geometry = new RoundedBoxGeometry(1.15, 0.11, 1.5, 1, 0.035);
     const material = new T.MeshStandardMaterial({
       color: "#828b86",
       roughness: 0.64,
     });
-    assets.applyTo(material, "worn_mossy_plasterwall", 1, 0.38);
+    assets.applyTo(material, "cobblestone_floor_01", 1, 0.38);
     weatherStone(material);
     const matrices: T.Matrix4[] = [],
       colors: T.Color[] = [];
-    for (let row = 0; row < 42; row++)
+    for (let row = 0; row < 16; row++)
       for (let col = 0; col < 12; col++) {
         if ((col === 0 || col === 11) && random() < 0.35) continue;
         const x = (col - 5.5) * 1.18 + (row % 2) * 0.3,
-          z = 16 - row * 1.55;
+          z = 7 - row * 1.55;
+        if (Math.hypot(x, z + 5) > 9 + random() * 1.6) continue;
         matrices.push(
-          place(x, -0.035 + random() * 0.018, z, (random() - 0.5) * 0.035),
+          place(
+            x,
+            heightAt(x, z) - 0.025 + random() * 0.018,
+            z,
+            (random() - 0.5) * 0.035,
+          ),
         );
         colors.push(
           new T.Color().setHSL(
@@ -164,6 +216,40 @@ export async function dressEnvironment(
     paving.castShadow = true;
     group.add(paving);
   }
+  if (!wooded && !["obsidian", "snow"].includes(plan.environment.ground)) {
+    const stones: T.Matrix4[] = [],
+      plants: T.Matrix4[] = [];
+    for (let i = 0; i < (QUALITY.low ? 30 : 160); i++) {
+      const a = random() * Math.PI * 2,
+        r = 5 + Math.sqrt(random()) * 45,
+        x = Math.cos(a) * r,
+        z = Math.sin(a) * r - 10;
+      if (
+        plan.objects.some(
+          (o) =>
+            Math.hypot(x - o.position[0], z - o.position[2]) <
+            Math.max(...o.scale) * 1.7 + 1,
+        )
+      )
+        continue;
+      if (
+        plan.effects.some(
+          (e) => Math.hypot(x - e.position[0], z - e.position[2]) < e.size * 2,
+        )
+      )
+        continue;
+      if (i % 3 === 0)
+        stones.push(
+          place(x, -0.04, z, random() * 6.28, 0.15 + random() * 0.65),
+        );
+      else if (plan.environment.ground === "stone")
+        plants.push(place(x, 0, z, random() * 6.28, 0.25 + random() * 0.55));
+    }
+    await instance("rock_moss_set_01", stones, false, 0.65);
+    if (!alive()) return group;
+    await instance("grass_medium_02", plants, true, 0.32);
+  }
+  group.userData.ready = true;
   return group;
 }
 

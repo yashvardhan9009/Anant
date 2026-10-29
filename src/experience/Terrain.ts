@@ -1,6 +1,7 @@
 import * as T from "three";
 import { assets } from "../engine/assets";
 import type { ScenePlan } from "../../shared/experience";
+import { refreshRelief } from "../engine/SurfaceRelief";
 
 const fract = (x: number) => x - Math.floor(x);
 const hash = (x: number, z: number) =>
@@ -50,17 +51,14 @@ export function createTerrain(plan: ScenePlan) {
     })),
   ];
   const height = (x: number, z: number) => {
-    let weight =
-      plan.environment.ground === "stone"
-        ? T.MathUtils.smoothstep(Math.abs(x), 7.5, 12)
-        : 1;
+    let weight = 1;
     for (const a of anchors) {
       const d = Math.hypot(x - a.x, z - a.z);
       if (d < a.r + 3)
         weight = Math.min(weight, T.MathUtils.smoothstep(d, a.r, a.r + 3));
     }
     return (
-      ((fbm(x * 0.075, z * 0.075) - 0.42) * 0.65 +
+      ((fbm(x * 0.045, z * 0.045) - 0.42) * 1.65 +
         (terrainNoise(x * 1.6, z * 1.6) - 0.5) * 0.035) *
       weight
     );
@@ -81,12 +79,17 @@ export function createTerrain(plan: ScenePlan) {
     roughness: 0.92,
   });
   if (!snow && !sand && plan.environment.ground !== "obsidian") {
-    assets.applyTo(material, "forest_ground_04", 1, 0.9);
+    assets.applyTo(
+      material,
+      plan.environment.ground === "stone" ? "mossy_rock" : "forest_ground_04",
+      1,
+      0.75,
+    );
     ownMaps(material);
     const moss = new T.MeshStandardMaterial();
     assets.applyTo(moss, "leafy_grass", 1, 0.8);
     const mossMap = moss.map?.clone();
-    if (mossMap) {
+    if (mossMap && plan.environment.ground === "grass") {
       mossMap.needsUpdate = true;
       textures.add(mossMap);
     }
@@ -116,11 +119,22 @@ export function createTerrain(plan: ScenePlan) {
       };
       material.customProgramCacheKey = () => "studio-ground-moss-v1";
     }
+  } else if (snow || sand) {
+    assets.applyTo(
+      material,
+      snow ? "snow_02" : "sand_01",
+      1,
+      snow ? 0.35 : 0.65,
+    );
+    ownMaps(material);
+    material.color.set(snow ? "#eef5fa" : "#c7b18b");
+    material.roughness = 0.94;
   } else if (plan.environment.ground === "obsidian") {
     material.color.set("#181e23");
     material.roughness = 0.4;
     material.metalness = 0.3;
   }
+  refreshRelief(material);
   const ground = new T.PlaneGeometry(320, 320, 256, 256);
   ground.rotateX(-Math.PI / 2);
   const p = ground.attributes.position,
@@ -216,20 +230,53 @@ export function createTerrain(plan: ScenePlan) {
         `
       #ifdef USE_MAP
       vec3 weights=pow(abs(normalize(geoNormal)),vec3(4.));weights/=max(.001,weights.x+weights.y+weights.z);
-      vec3 geology=texture2D(map,geoPosition.yz*.12).rgb*weights.x+texture2D(map,geoPosition.xz*.12).rgb*weights.y+texture2D(map,geoPosition.xy*.12).rgb*weights.z;
-      diffuseColor.rgb*=geology;
+      vec3 geology=texture2D(map,geoPosition.yz*.28).rgb*weights.x+texture2D(map,geoPosition.xz*.28).rgb*weights.y+texture2D(map,geoPosition.xy*.28).rgb*weights.z;
+      float strata=.89+.11*sin(geoPosition.y*.8+sin(geoPosition.x*.04)*3.+geoPosition.z*.025);
+      diffuseColor.rgb*=geology*strata;
+      #endif
+    `,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <normal_fragment_maps>",
+        `
+      #ifdef USE_NORMALMAP
+      vec3 gn=normalize(geoNormal),w=pow(abs(gn),vec3(4.));w/=max(.001,w.x+w.y+w.z);
+      vec3 nx=texture2D(normalMap,geoPosition.yz*.28).xyz*2.-1.;
+      vec3 ny=texture2D(normalMap,geoPosition.xz*.28).xyz*2.-1.;
+      vec3 nz=texture2D(normalMap,geoPosition.xy*.28).xyz*2.-1.;
+      nx=vec3(nx.xy*.55+gn.zy,abs(nx.z)*gn.x);ny=vec3(ny.xy*.55+gn.xz,abs(ny.z)*gn.y);nz=vec3(nz.xy*.55+gn.xy,abs(nz.z)*gn.z);
+      normal=normalize(mat3(viewMatrix)*(nx.zyx*w.x+ny.xzy*w.y+nz*w.z));
+      #endif
+    `,
+      )
+      .replace(
+        "#include <roughnessmap_fragment>",
+        `
+      float roughnessFactor=roughness;
+      #ifdef USE_ROUGHNESSMAP
+      vec3 rw=pow(abs(normalize(geoNormal)),vec3(4.));rw/=max(.001,rw.x+rw.y+rw.z);
+      roughnessFactor*=texture2D(roughnessMap,geoPosition.yz*.28).g*rw.x+texture2D(roughnessMap,geoPosition.xz*.28).g*rw.y+texture2D(roughnessMap,geoPosition.xy*.28).g*rw.z;
       #endif
     `,
       );
   };
   rock.customProgramCacheKey = () => "studio-triplanar-geology-v1";
-  // The geometric normals already carry the strata's relief; avoid stretching a
-  // single UV normal map over near-vertical cliffs.
-  rock.normalMap = null;
+  rock.userData.worldProjection = true;
+  rock.userData.surfaceRelief = false;
+  // All three surface channels use the same projection; cliffs do not stretch UVs.
   rock.aoMap = null;
   const hills = new T.Mesh(geology, rock);
   hills.position.z = -220;
   hills.receiveShadow = true;
   group.add(hills);
+  for (const side of [-1, 1]) {
+    const flank = new T.Mesh(geology, rock);
+    flank.position.set(side * 230, -4, -135);
+    flank.rotation.y = -side * 1.2;
+    flank.scale.set(1, 0.72, 1);
+    flank.receiveShadow = true;
+    group.add(flank);
+  }
   return { group, height, textures };
 }

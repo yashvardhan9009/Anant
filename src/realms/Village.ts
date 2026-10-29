@@ -7,7 +7,10 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { halfTimberHouse, worldBox, M, barrel, crate, grassField, forest, rocks, Ridges, groundMaterial, WIND, addWind } from '../engine/architecture';
 import { softSprite, cloth, applyPBR } from '../engine/textures';
 import { QUALITY } from '../engine/quality';
-import { assets, place } from '../engine/assets';
+import { assets, place,updateAssetLOD } from '../engine/assets';
+import {naturalFoliage,weatherStone} from '../experience/NaturalMaterials';
+import {lanternHead} from '../engine/LanternKit';
+import {villageCobbles,cullCobbles} from './VillageCobbles';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import type { WorldState, Env } from '../../shared/worldState';
@@ -66,6 +69,11 @@ export class Village extends Realm {
   private sun = new THREE.DirectionalLight('#ffb27a', 2.4);
   private hemi = new THREE.HemisphereLight('#6a8ad0', '#2a2018', 0.5);
   private lanternLights: THREE.PointLight[] = [];
+  private lampFlames:THREE.MeshStandardMaterial[]=[];
+  private fallbackGrass?:THREE.Object3D;
+  private cobbles?:THREE.Group;
+  private foliageLOD:THREE.Group[]=[];
+  private nearGrassReady=false;
   private forgeLight = new THREE.PointLight('#ff6a1a', 30, 16, 2);
   private fireflies = makeMotes(320, new THREE.Vector3(80, 5, 80), '#e4ff8a', 0.07);
   private embers = makeMotes(160, new THREE.Vector3(1.2, 5, 1.2), '#ff8a3a', 0.07);
@@ -102,9 +110,9 @@ export class Village extends Realm {
     this.scene.add(this.sky.mesh, this.hemi, this.fireflies, this.weather.points, this.ridges.group);
     this.sun.castShadow = q.shadows;
     this.sun.shadow.mapSize.set(q.shadowMap, q.shadowMap);
-    Object.assign(this.sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 1, far: 220 });
+    Object.assign(this.sun.shadow.camera, { left: -23, right: 23, top: 23, bottom: -23, near: 1, far: 220 });
     this.sun.shadow.bias = -0.0004;
-    this.sun.shadow.normalBias = 0.04;
+    this.sun.shadow.normalBias = 0.018;
     this.scene.add(this.sun, this.sun.target);
 
     // Terrain: vertex-coloured biome blend × tiled PBR detail
@@ -142,14 +150,14 @@ export class Village extends Realm {
     sq.rotateX(-Math.PI / 2).translate(2.5, 0, 2);
     const sqUv = sq.attributes.uv as THREE.BufferAttribute;
     for (let i = 0; i < sqUv.count; i++) sqUv.setXY(i, sqUv.getX(i) * 2.5, sqUv.getY(i) * 2.5);
-    const square = new THREE.Mesh(conform(sq), M.cobble());
+    const square = new THREE.Mesh(conform(sq,QUALITY.cinematic?.006:.05), M.cobble());
     square.receiveShadow = true;
     this.scene.add(square);
     const road = new THREE.PlaneGeometry(3.2, 46, 4, 80);
     road.rotateX(-Math.PI / 2).translate(2.5, 0, 2);
     const rUv = road.attributes.uv as THREE.BufferAttribute;
     for (let i = 0; i < rUv.count; i++) rUv.setXY(i, rUv.getX(i) * 1.1, rUv.getY(i) * 16);
-    const roadM = new THREE.Mesh(conform(road, 0.04), M.cobble());
+    const roadM = new THREE.Mesh(conform(road, QUALITY.cinematic?.006:0.04), M.cobble());
     roadM.receiveShadow = true;
     this.scene.add(roadM);
 
@@ -303,8 +311,7 @@ export class Village extends Realm {
     lanternSpots.forEach(([x, z], i) => {
       const y = this.groundY(x, z);
       this.scene.add(this.box(new THREE.CylinderGeometry(0.06, 0.09, 2.8, 8), M.iron(), x, y + 1.4, z));
-      this.scene.add(this.box(new THREE.BoxGeometry(0.34, 0.46, 0.34), new THREE.MeshStandardMaterial({ color: '#ffb347', emissive: '#ffa040', emissiveIntensity: 5 }), x, y + 2.95, z, false));
-      this.scene.add(this.box(new THREE.ConeGeometry(0.3, 0.28, 4).rotateY(Math.PI / 4), M.iron(), x, y + 3.3, z));
+      const head=lanternHead();head.position.set(x,y+2.95,z);this.scene.add(head);this.lampFlames.push(head.userData.flame);
       if (i < 6) {
         const l = new THREE.PointLight('#ffae5a', 8, 14, 2);
         l.position.set(x, y + 2.95, z);
@@ -334,12 +341,12 @@ export class Village extends Realm {
 
     // Grass, forest, rocks
     const clear = (x: number, z: number) => this.pathFactor(x, z) < 0.15 && !this.footprints.some((f) => (x - f.x) ** 2 + (z - f.z) ** 2 < f.r * f.r) && (x - 2.5) ** 2 + (z - 2) ** 2 > 7.6 ** 2;
-    this.scene.add(grassField(q.grassBlades, () => {
+    this.fallbackGrass=grassField(q.grassBlades, () => {
       const r = Math.sqrt(Math.random()) * 46, a = Math.random() * Math.PI * 2;
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
       const y = this.groundY(x, z);
       return clear(x, z) && y < 6 ? { x, y, z } : null;
-    }));
+    });this.scene.add(this.fallbackGrass);
     const spots: { x: number; y: number; z: number; s: number; rot: number; kind: 'pine' | 'oak' }[] = [];
     let seed = 7;
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -441,6 +448,8 @@ export class Village extends Realm {
       n++;
     }
     if (n) rep.push(`${n} scanned PBR surfaces`);
+    for(const ridge of this.ridges.layers){const m=ridge.mesh.material as THREE.MeshStandardMaterial;weatherStone(m);assets.applyTo(m,'mossy_rock',1,.55);m.color.set('#a7a39b');}
+    if(QUALITY.cinematic){this.cobbles=villageCobbles((x,z)=>this.groundY(x,z));this.scene.add(this.cobbles);}
 
     // 2 — real dusk sky (HDRI) lighting the whole scene
     this.hdr = (await assets.hdri('kloppenheim_06_puresky')) ?? undefined;
@@ -454,7 +463,7 @@ export class Village extends Realm {
     if (QUALITY.low) { this.assetReport = rep; return; }
     const foliage = (mode: 'tree' | 'plant') => (m: THREE.MeshStandardMaterial) => {
       if (m.alphaTest > 0 || m.transparent) { m.side = THREE.DoubleSide; m.alphaTest = .25; m.alphaToCoverage = true; m.transparent = false; }
-      addWind(m, mode);
+      naturalFoliage(m, mode==='tree');
     };
     // 3 — real trees replace the procedural forest
     const conifers = ['fir_tree_01', 'pine_tree_01'].filter((id) => assets.has('models', id));
@@ -491,17 +500,20 @@ export class Village extends Realm {
     const clear = (x: number, z: number, pad = 0) => this.pathFactor(x, z) < 0.1 && !this.footprints.some((f) => (x - f.x) ** 2 + (z - f.z) ** 2 < (f.r + pad) ** 2) && (x - 2.5) ** 2 + (z - 2) ** 2 > 8 ** 2;
     const scatter = async (id: string, count: number, rMin: number, rMax: number, sMin: number, sMax: number, pad = 0, mode: 'tree' | 'plant' = 'plant') => {
       const tf: THREE.Matrix4[] = [];
+      const source=await assets.size(id),target:Record<string,number>={grass_medium_01:.38,grass_medium_02:.45,fern_02:.75,nettle_plant:.7,shrub_01:1.5,shrub_04:1.3};
+      const normalise=target[id]&&source?target[id]/source.y:1;
       for (let tries = 0; tf.length < count && tries < count * 20; tries++) {
         const a = rnd() * Math.PI * 2, r = rMin + Math.sqrt(rnd()) * (rMax - rMin);
         const x = Math.cos(a) * r, z = Math.sin(a) * r;
         if (!clear(x, z, pad) || this.groundY(x, z) > 7) continue;
-        tf.push(place(x, this.groundY(x, z) - 0.03, z, rnd() * 6.28, sMin + rnd() * (sMax - sMin)));
+        tf.push(place(x, this.groundY(x, z) - 0.03, z, rnd() * 6.28, (sMin + rnd() * (sMax - sMin))*normalise));
       }
-      const inst = await assets.instanced(id, tf, { shadows: mode === 'tree', patch: foliage(mode) });
-      if (inst) { this.scene.add(inst); rep.push(`${tf.length}× ${id}`); }
+      const inst = await assets.instanced(id, tf, { shadows: mode === 'tree', patch: foliage(mode),maxDistance:mode==='plant'?20:undefined });
+      if (inst) { this.scene.add(inst);if(id.startsWith('grass_medium'))this.nearGrassReady=true;if(mode==='plant')this.foliageLOD.push(inst); rep.push(`${tf.length}× ${id}`); }
     };
-    await scatter('grass_medium_01', QUALITY.low ? 120 : 600, 6, 45, 0.8, 1.4);
-    await scatter('grass_medium_02', QUALITY.low ? 80 : 500, 6, 45, 0.8, 1.5);
+    await scatter('grass_medium_01', 1400, 5, 45, 0.8, 1.4);
+    await scatter('grass_medium_02', 1100, 5, 45, 0.8, 1.5);
+    if(this.fallbackGrass&&this.nearGrassReady)(this.fallbackGrass as THREE.Mesh).material instanceof THREE.MeshStandardMaterial&&(((this.fallbackGrass as THREE.Mesh).material as THREE.MeshStandardMaterial).userData.grassNearFade.value=13);
     await scatter('fern_02', QUALITY.low ? 40 : 260, 20, 60, 0.8, 1.6);
     await scatter('nettle_plant', QUALITY.low ? 20 : 120, 8, 40, 0.8, 1.3, 0.5);
     await scatter('shrub_01', QUALITY.low ? 10 : 60, 14, 50, 0.7, 1.3, 1, 'tree');
@@ -846,6 +858,7 @@ export class Village extends Realm {
     u.uAurora.value = e.weather === 'aurora' ? 1 : 0;
     this.weather.set(e.weather);
     for (const l of this.lanternLights) l.intensity = 8 * presets.lan;
+    for (const flame of this.lampFlames) flame.emissiveIntensity=.1+presets.lan*3;
     M.glassWarm().emissiveIntensity = presets.lan > 0.3 ? 2.2 * presets.lan : 0.15;
     this.ridges.tint(new THREE.Color(presets.bot).lerp(new THREE.Color('#202434'), 0.5), fogC);
   }
@@ -870,6 +883,12 @@ export class Village extends Realm {
 
   update(ctx: FrameCtx) {
     super.update(ctx);
+    if(ctx.active)for(const group of this.foliageLOD)updateAssetLOD(group,ctx.camera.position);
+    if(this.cobbles&&ctx.active)cullCobbles(this.cobbles,ctx.camera.position);
+    if(ctx.active){
+      const step=46/QUALITY.shadowMap,old=this.sun.target.position.clone(),next=old.clone().set(Math.round(ctx.camera.position.x/step)*step,0,Math.round(ctx.camera.position.z/step)*step);
+      this.sun.target.position.copy(next);this.sun.position.add(next.sub(old));
+    }
     const t = ctx.t;
     this.sky.uniforms.uTime.value = t;
     this.sky.uniforms.uLightning.value = this.weather.lightning;

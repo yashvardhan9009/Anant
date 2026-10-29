@@ -140,8 +140,10 @@ try {
   check(
     "walking restores human eye height",
     await page.evaluate(
-      () =>
-        Math.abs(window.__anant.studio.renderer.camera.position.y - 1.72) < 0.1,
+      () => {
+        const r=window.__anant.studio.renderer,p=r.camera.position;
+        return Math.abs(p.y-r.terrainHeight(p.x,p.z)-1.72)<.1;
+      },
     ),
   );
   await page

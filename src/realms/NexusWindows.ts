@@ -5,6 +5,7 @@ import { QUALITY } from "../engine/quality";
 import { Masonry, type NexusMaterials } from "./NexusCraft";
 import { NEXUS_GATES, GATE_STEPS, gateYaw } from "./nexusLayout";
 import { assets } from "../engine/assets";
+import { buildCitadel } from "../engine/Citadel";
 import { circularRaycast } from "../engine/aperture";
 
 const time = () => ({ value: 0 });
@@ -74,129 +75,59 @@ function starWindow(
   );
 }
 
-function castle(frame: T.Group, color: string, m: NexusMaterials) {
+function castle(frame: T.Group, color: string, _m: NexusMaterials) {
   const group = new T.Group();
-  group.position.set(0, -1.8, -3);
+  group.position.set(0, -3.2, -3);
   frame.add(group);
-  const rock = aperture(m.stone.clone(), frame, 6.05);
-  const edge = aperture(m.edge.clone(), frame, 6.05);
-  const roof = aperture(m.iron.clone(), frame, 6.05);
-  const windows = aperture(
-    new T.MeshBasicMaterial({
-      color: new T.Color("#ffd29b").multiplyScalar(2),
-    }),
-    frame,
-    6.05,
-  );
-  void m.ready.then(() => {
-    rock.copy(m.stone);
-    edge.copy(m.edge);
-    roof.copy(m.iron);
-    rock.needsUpdate = edge.needsUpdate = roof.needsUpdate = true;
+  const citadel = buildCitadel("#a8a69e");
+  citadel.root.position.y = 0.45;
+  citadel.root.scale.setScalar(1.15);
+  group.add(citadel.root);
+  void citadel.ready?.then(() => {
+    const seen = new Set<T.Material>();
+    citadel.root.traverse((o) => {
+      o.raycast = () => {};
+      if ((o as T.Mesh).isMesh) {
+        const mesh = o as T.Mesh;
+        mesh.castShadow = mesh.receiveShadow = false;
+        for (const mat of Array.isArray(mesh.material)
+          ? mesh.material
+          : [mesh.material])
+          if (!seen.has(mat)) {
+            seen.add(mat);
+            aperture(mat, frame, 6.05);
+            mat.needsUpdate = true;
+          }
+      }
+    });
   });
-  const b = new Masonry();
-  // Floating buttressed citadel: walls, turrets, lancets, roof ridges and a suspended rocky base.
-  const crag = new T.IcosahedronGeometry(1, 2),
-    cp = crag.attributes.position as T.BufferAttribute;
-  for (let i = 0; i < cp.count; i++) {
-    const x = cp.getX(i),
-      y = cp.getY(i),
-      z = cp.getZ(i),
-      f = 0.8 + 0.23 * Math.sin(x * 19 + y * 13 + z * 21);
-    cp.setXYZ(i, x * f * 3.8, Math.min(0.8, y * f * 2.8), z * f * 3.3);
-  }
-  crag.computeVertexNormals();
-  b.add(crag, rock, [0, -0.7, -1]);
-  b.add(new T.CylinderGeometry(3.7, 4.1, 0.7, 12), edge, [0, 0.4, -1]);
-  b.box([4, 2.9, 3], rock, [0, 2, -1]);
-  for (let side = -1; side <= 1; side += 2) {
-    b.box([0.25, 3.1, 3.3], edge, [side * 1.85, 2, -1]);
-    for (let i = 0; i < 5; i++) {
-      const x = -1.5 + i * 0.75;
-      b.box([0.2, 0.85, 0.05], windows, [x, 2.8, 0.53]);
-      b.box([0.12, 2.5, 0.25], edge, [x + 0.25, 1.9, 0.62]);
-      b.add(new T.ConeGeometry(0.18, 0.65, 4), roof, [x + 0.25, 3.45, 0.62]);
-    }
-    b.box([5.6, 0.2, 0.9], edge, [side * 1.8, 1.4, -1.8], [0, side * 0.25, 0]);
-  }
-  const towers: number[][] = [
-    [-2.6, 3.5, -0.2],
-    [2.6, 4.5, -0.3],
-    [-1.5, 5.4, -2.4],
-    [0.8, 6.3, -1.4],
-    [0, 8.2, -2.7],
-    [3, 2.9, -2.8],
-    [-3, 2.7, -2.7],
-  ];
-  towers.forEach(([x, h, z], i) => {
-    const r = i === 4 ? 0.65 : 0.45;
-    b.add(new T.CylinderGeometry(r, r * 1.18, h, 8), rock, [
-      x,
-      h / 2 + 0.65,
-      z,
-    ]);
-    b.add(new T.ConeGeometry(r * 1.55, 1.6 + (i % 2), 8), roof, [
-      x,
-      h + 1.45,
-      z,
-    ]);
-    for (let k = 0; k < 4; k++) {
-      const a = (k * Math.PI) / 2;
-      b.box(
-        [0.09, 0.55, 0.025],
-        windows,
-        [x + Math.sin(a) * (r + 0.03), h - 0.3, z + Math.cos(a) * (r + 0.03)],
-        [0, a, 0],
-      );
-      b.box(
-        [0.18, h * 0.8, 0.22],
-        edge,
-        [x + Math.sin(a) * r, h * 0.4 + 0.5, z + Math.cos(a) * r],
-        [0, a, 0],
-      );
-    }
-  });
-  for (let i = 0; i < 30; i++) {
-    const a = (i / 30) * Math.PI * 2;
-    b.box(
-      [0.32, 0.45, 0.42],
-      rock,
-      [Math.sin(a) * 3.7, 1.02, Math.cos(a) * 3.7 - 1],
-      [0, a, 0],
+  void assets.clone("boulder_01").then((base) => {
+    if (!base) return;
+    const box = new T.Box3().setFromObject(base),
+      size = box.getSize(new T.Vector3()),
+      center = box.getCenter(new T.Vector3());
+    base.scale.set(6.8 / size.x, 3.5 / size.y, 5.8 / size.z);
+    base.position.set(
+      -center.x * base.scale.x,
+      -1.4 - center.y * base.scale.y,
+      -1 - center.z * base.scale.z,
     );
-  }
-  b.finish(group, "Portal citadel miniature");
-  // Scanned surface geometry replaces the analytic underside close to the camera.
-  void m.ready.then(async () => {
-    const base = await assets.clone("boulder_01");
-    if (base) {
-      const box = new T.Box3().setFromObject(base),
-        size = box.getSize(new T.Vector3()),
-        center = box.getCenter(new T.Vector3());
-      base.scale.set(7.8 / size.x, 3.8 / size.y, 5.8 / size.z);
-      base.position.set(
-        -center.x * base.scale.x,
-        -1.3 - center.y * base.scale.y,
-        -1 - center.z * base.scale.z,
-      );
-      base.traverse((o) => {
-        if ((o as T.Mesh).isMesh) {
-          const mesh = o as T.Mesh;
-          mesh.castShadow = false;
-          mesh.receiveShadow = false;
-          mesh.raycast = () => {};
-          mesh.material = Array.isArray(mesh.material)
-            ? mesh.material.map((source) =>
-                aperture(source.clone(), frame, 6.05),
-              )
-            : aperture(mesh.material.clone(), frame, 6.05);
-        }
-      });
-      base.name = "Scanned rock beneath the citadel";
-      group.add(base);
-    }
+    base.traverse((o) => {
+      o.raycast = () => {};
+      if ((o as T.Mesh).isMesh) {
+        const mesh = o as T.Mesh;
+        mesh.castShadow = mesh.receiveShadow = false;
+        const copy = (source: T.Material) =>
+          aperture(source.clone(), frame, 6.05);
+        mesh.material = Array.isArray(mesh.material)
+          ? mesh.material.map(copy)
+          : copy(mesh.material);
+      }
+    });
+    base.name = "Scanned rock beneath the citadel";
+    group.add(base);
   });
-  const light = new T.PointLight(color, 180, 20, 2);
+  const light = new T.PointLight(color, 110, 20, 2);
   light.position.set(0, 6, 3);
   frame.add(light);
   return group;

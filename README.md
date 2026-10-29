@@ -1,7 +1,12 @@
 # ANANT — EXPERIENCE THE IMPOSSIBLE.
 
 The project-wide visual objective and hardware budget are recorded in
-[Rendering target](docs/rendering-target.md). The Nexus now has a monumental
+[Rendering target](docs/rendering-target.md). The environment pass adds streamed
+2K scanned surfaces in Cinematic/Ultra, bounded parallax relief, consistent
+triplanar rock normals, more detailed timber/masonry dwellings and a shared
+citadel. Emberfall adds embedded stone paving, caged lanterns, denser nearby
+foliage and a more detailed mountain horizon. Studio uses smaller spatial
+foliage batches and contextual ground dressing. The Nexus has a monumental
 dark Gothic hall, four filled destination vignettes, an overhead galaxy
 astrolabe, engraved bronze, scanned stone, braziers and wet marble that reflects
 the actual scene. Gates still open the existing interactive realms. Earlier
@@ -64,7 +69,7 @@ Hand gestures (MediaPipe, optional) control grab, pinch-scale, rotate and drawin
 - **Shift+drag** grabs a body.
 - **P** opens Cinema mode, hiding the interface and labels; **Esc** restores them.
 
-Choose **Cinematic**, **Balanced**, or **Performance** in the top bar. Cinematic is the default: AgX tone mapping, restrained bloom, contact shading, detailed shadows and higher-quality orbital/black-hole rendering. Balanced reduces rendering cost; Performance uses simpler foliage and effects. All three run the same physics. Changing quality saves the world before reloading. URL overrides are `?quality=cinematic`, `?quality=balanced` and `?quality=performance`; the older `?lowfx` still selects Performance.
+Choose **Cinematic**, **Ultra**, **Balanced**, or **Performance** in the top bar. Cinematic is the default: AgX tone mapping, restrained bloom, contact shading, detailed shadows and higher-quality orbital/black-hole rendering. Ultra increases shadow/reflection resolution and relief sampling. Balanced reduces rendering cost; Performance uses simpler foliage and effects. Balanced/Performance retain 1K surfaces and omit the expensive relief path and geometric paving. All tiers run the same physics. Changing quality saves the world before reloading. URL overrides are `?quality=cinematic`, `?quality=ultra`, `?quality=balanced` and `?quality=performance`; the older `?lowfx` still selects Performance.
 
 ## Detailed Earth and scene assets
 
@@ -127,6 +132,11 @@ Character rebuild instructions: [character assets](docs/character-assets.md).
 To verify live Earth providers after building: `node scripts/e2e-earth.mjs`.
 To inspect Nexus interaction and rendering at all graphics tiers after building:
 `node scripts/e2e-nexus.mjs`. It uses an isolated temporary world database.
+For daylight/night Emberfall, close paving, spawned citadel/island, forest,
+sand/snow and all graphics paths, run `node scripts/e2e-environment.mjs`.
+The Studio environments in that check are explicit fixtures, not AI generations.
+Rebuild the versioned CC0 detail maps with `node scripts/fetch-detail-surfaces.mjs`;
+[their source manifest](public/assets/detail-v1/sources.json) records provenance.
 
 ## Honesty labels
 

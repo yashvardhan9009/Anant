@@ -6,8 +6,13 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { assets } from "../engine/assets";
-import { halfTimberHouse, WIND } from "../engine/architecture";
+import { assets, updateAssetLOD } from "../engine/assets";
+import {
+  halfTimberHouse,
+  WIND,
+  prepareBuildingMaterials,
+  M,
+} from "../engine/architecture";
 import { ContactAO } from "../engine/ContactAO";
 import { GradeShader, GodRayShader } from "../engine/look";
 import { dressEnvironment, disposeDressing } from "./EnvironmentDressing";
@@ -19,15 +24,15 @@ import { Phenomenon } from "./Phenomena";
 import { Puddle } from "./Puddle";
 import { createTerrain } from "./Terrain";
 import { naturalFoliage, weatherStone } from "./NaturalMaterials";
-import { buildDragon } from '../engine/Dragon';
-import type { Built } from '../engine/objects';
+import { buildDragon } from "../engine/Dragon";
+import type { Built } from "../engine/objects";
 
 export class ExperienceRenderer {
   readonly scene = new T.Scene();
   readonly camera = new T.PerspectiveCamera(58, 1, 0.08, 500);
   readonly rig = new CameraRig(this.camera);
   readonly renderer = new T.WebGLRenderer({
-    antialias: true,
+    antialias: false,
     powerPreference: "high-performance",
   });
   private composer = new EffectComposer(
@@ -47,7 +52,7 @@ export class ExperienceRenderer {
   private phenomena: Phenomenon[] = [];
   private puddle?: Puddle;
   private moving: { node: T.Object3D; y: number; mode: string }[] = [];
-  private creatures:Built[]=[];
+  private creatures: Built[] = [];
   private colliders: T.Box3[] = [];
   private sun = new T.DirectionalLight("#ffdbac", 3);
   private ambient = new T.HemisphereLight("#a7c7eb", "#454641", 1);
@@ -97,7 +102,10 @@ export class ExperienceRenderer {
 
   constructor(private host: HTMLElement) {
     this.renderer.setPixelRatio(
-      Math.min(devicePixelRatio, QUALITY.ultra ? 2 : QUALITY.cinematic ? 1.4 : 1),
+      Math.min(
+        devicePixelRatio,
+        QUALITY.ultra ? 2 : QUALITY.cinematic ? 1.4 : 1,
+      ),
     );
     this.renderer.toneMapping = T.AgXToneMapping;
     this.renderer.toneMappingExposure = 1;
@@ -115,16 +123,22 @@ export class ExperienceRenderer {
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(QUALITY.shadowMap, QUALITY.shadowMap);
     Object.assign(this.sun.shadow.camera, {
-      left: -35,
-      right: 35,
-      top: 35,
-      bottom: -35,
+      left: -22,
+      right: 22,
+      top: 22,
+      bottom: -22,
       near: 1,
       far: 130,
     });
     this.sun.shadow.bias = -0.0004;
-    this.sun.shadow.normalBias = 0.04;
-    this.scene.add(this.content, this.sky.mesh, this.sun, this.ambient);
+    this.sun.shadow.normalBias = 0.018;
+    this.scene.add(
+      this.content,
+      this.sky.mesh,
+      this.sun,
+      this.sun.target,
+      this.ambient,
+    );
     for (const object of [this.sky.mesh, this.sun, this.ambient])
       object.layers.enable(1);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -176,6 +190,8 @@ export class ExperienceRenderer {
     }
     const generation = ++this.epoch;
     this.clear();
+    this.sun.position.sub(this.sun.target.position);
+    this.sun.target.position.set(0, 0, 0);
     this.scene.background = null;
     this.sky.mesh.visible = true;
     this.weatherKind = plan.environment.weather;
@@ -215,6 +231,7 @@ export class ExperienceRenderer {
     this.renderer.toneMappingExposure = night ? 1.05 : 1;
     await assets.init();
     if (this.closed || generation !== this.epoch) return;
+    prepareBuildingMaterials();
     const terrain = createTerrain(plan);
     this.terrainHeight = terrain.height;
     for (const texture of terrain.textures) this.ownedTextures.add(texture);
@@ -283,7 +300,10 @@ export class ExperienceRenderer {
             : 0.85;
         this.sky.mesh.visible = false;
       }
-      this.sun.position.copy(hdr.sunDir).multiplyScalar(70);
+      this.sun.position
+        .copy(hdr.sunDir)
+        .multiplyScalar(70)
+        .add(this.sun.target.position);
       this.sun.intensity = night ? 0.3 : blue ? 0.7 : 3.5;
       if (this.scene.fog instanceof T.FogExp2) {
         if (blue || night)
@@ -449,72 +469,45 @@ export class ExperienceRenderer {
         break;
       }
       case "house": {
-        if (item.material !== "wood") {
-          add(new RoundedBoxGeometry(4, 3, 3.5, 2, 0.035), 0, 1.5);
-          const roofMaterial = new T.MeshStandardMaterial({
-            color: "#97775c",
-            roughness: 0.85,
-          });
-          assets.applyTo(roofMaterial, "clay_roof_tiles_02", 2, 0.8);
-          this.ownTextures(roofMaterial);
-          const shape = new T.Shape();
-          shape.moveTo(-2.3, 0);
-          shape.lineTo(0, 1.05);
-          shape.lineTo(2.3, 0);
-          shape.closePath();
-          const roof = new T.Mesh(
-            new T.ExtrudeGeometry(shape, { depth: 4.1, bevelEnabled: false }),
-            roofMaterial,
-          );
-          roof.position.set(0, 3, -2.05);
-          roof.castShadow = true;
-          roof.receiveShadow = true;
-          group.add(roof);
-          const opening = new T.MeshStandardMaterial({
-            color: "#16212a",
-            roughness: 0.75,
-          });
-          const door = new T.Mesh(new T.PlaneGeometry(1.05, 2.15), opening);
-          door.position.set(0, 1.08, 1.756);
-          group.add(door);
-          for (const x of [-1.35, 1.35]) {
-            const window = new T.Mesh(new T.PlaneGeometry(0.65, 0.8), opening);
-            window.position.set(x, 1.9, 1.757);
-            group.add(window);
-            add(
-              new RoundedBoxGeometry(0.8, 0.12, 0.23, 1, 0.025),
-              x,
-              1.48,
-              1.8,
-            );
-            add(new T.CylinderGeometry(0.13, 0.16, 2.8, 16), x, 1.4, 2.14);
-          }
-          add(new RoundedBoxGeometry(3.5, 0.25, 0.7, 1, 0.03), 0, 2.8, 2.12);
-          add(new RoundedBoxGeometry(4.4, 0.16, 4.1, 1, 0.03), 0, 0.08, 0.16);
-          break;
-        }
-        material.dispose();
         const house = halfTimberHouse({
           w: 4,
           d: 3.5,
           h: 3,
-          roof: "#63534a",
+          roof: item.material === "wood" ? "#63534a" : "#686d70",
           chimney: true,
+          masonry: item.material !== "wood",
         });
         house.traverse((o) => {
           if (o instanceof T.Mesh) {
             o.geometry = o.geometry.clone();
+            const copy = (source: T.Material) => {
+              const wall = source === M.stone() || source === M.plaster();
+              const original =
+                wall && ["glass", "metal", "light"].includes(item.material)
+                  ? material
+                  : source;
+              const m = original.clone();
+              m.onBeforeCompile = original.onBeforeCompile;
+              m.customProgramCacheKey = original.customProgramCacheKey;
+              if (wall && !["glass", "metal", "light"].includes(item.material))
+                (m as T.MeshStandardMaterial).color.set(item.color);
+              return m;
+            };
             o.material = Array.isArray(o.material)
-              ? o.material.map((m) => m.clone())
-              : o.material.clone();
+              ? o.material.map(copy)
+              : copy(o.material);
+            o.layers.enable(1);
           }
         });
+        material.dispose();
         group.add(house);
         break;
       }
-      case 'dragon': {
+      case "dragon": {
         material.dispose();
-        const creature=buildDragon(item.color);this.creatures.push(creature);group.add(creature.root);
+        const creature = buildDragon(item.color);
+        this.creatures.push(creature);
+        group.add(creature.root);
         break;
       }
       case "tree":
@@ -659,6 +652,15 @@ export class ExperienceRenderer {
       return;
     }
     this.rig.update(dt, this.realm);
+    updateAssetLOD(this.content, this.camera.position);
+    const shadowStep = 44 / QUALITY.shadowMap,
+      oldTarget = this.sun.target.position.clone();
+    this.sun.target.position.set(
+      Math.round(this.camera.position.x / shadowStep) * shadowStep,
+      0,
+      Math.round(this.camera.position.z / shadowStep) * shadowStep,
+    );
+    this.sun.position.add(this.sun.target.position.clone().sub(oldTarget));
     this.sky.mesh.position.copy(this.camera.position);
     this.skyTime += dt;
     this.sky.uniforms.uTime.value = this.skyTime;
@@ -667,6 +669,7 @@ export class ExperienceRenderer {
     this.puddle?.update(this.time);
     const projectedSun = this.sun.position
       .clone()
+      .sub(this.sun.target.position)
       .normalize()
       .multiplyScalar(200)
       .add(this.camera.position)
@@ -683,7 +686,7 @@ export class ExperienceRenderer {
         : 0;
     if (!this.frozen) {
       this.time += dt;
-      for(const creature of this.creatures)creature.animate?.(this.time,dt);
+      for (const creature of this.creatures) creature.animate?.(this.time, dt);
       for (const fx of this.phenomena) fx.update(this.time, dt, this.camera);
       for (const m of this.moving) {
         if (m.mode === "float")
@@ -707,8 +710,8 @@ export class ExperienceRenderer {
   private clear() {
     this.appearanceKey = "";
     this.rig.stopMotion();
-    for(const creature of this.creatures)creature.dispose?.();
-    this.creatures=[];
+    for (const creature of this.creatures) creature.dispose?.();
+    this.creatures = [];
     for (const f of this.phenomena) f.dispose();
     this.phenomena = [];
     this.puddle?.dispose();

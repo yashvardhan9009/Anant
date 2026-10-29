@@ -6,10 +6,12 @@ import * as THREE from 'three';
 import { GLTFLoader, GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { QUALITY } from './quality';
+import { surfaceRelief } from './SurfaceRelief';
 
 const BASE = '/assets';
 
-interface Manifest { models: string[]; textures: string[]; hdris: string[]; space?: string[] }
+interface Manifest { models: string[]; textures: string[]; hdris: string[]; space?: string[]; detail?:Record<string,string[]> }
 
 class AssetLibrary {
   manifest: Manifest = { models: [], textures: [], hdris: [], space: [] };
@@ -17,7 +19,7 @@ class AssetLibrary {
   private gltf = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   private tex = new THREE.TextureLoader();
   private models = new Map<string, Promise<GLTF | null>>();
-  private sets = new Map<string, { map: THREE.Texture; normalMap: THREE.Texture; arm: THREE.Texture } | null>();
+  private sets = new Map<string, { map: THREE.Texture; normalMap: THREE.Texture; arm: THREE.Texture; height?:THREE.Texture } | null>();
   private ready?: Promise<void>;
   private treeCards = new Map<string, THREE.Texture>();
 
@@ -59,11 +61,11 @@ class AssetLibrary {
   }
 
   init() {
-    this.ready ??= fetch(`${BASE}/manifest.json`).then((r) => (r.ok ? r.json() : this.manifest)).then((m) => { this.manifest = m; }).catch(() => {});
+    this.ready ??= fetch(`${BASE}/manifest.json`,{cache:'no-cache'}).then((r) => (r.ok ? r.json() : this.manifest)).then((m) => { this.manifest = m; }).catch(() => {});
     return this.ready;
   }
 
-  has(kind: keyof Manifest, id: string) {
+  has(kind: 'models'|'textures'|'hdris'|'space', id: string) {
     return (this.manifest[kind] ?? []).includes(id);
   }
 
@@ -92,7 +94,7 @@ class AssetLibrary {
    * Instance a (possibly multi-mesh) model at many transforms. Each mesh in the
    * glTF becomes one InstancedMesh, so 500 trees cost a handful of draw calls.
    */
-  async instanced(id: string, transforms: THREE.Matrix4[], opts: { shadows?: boolean; patch?: (m: THREE.MeshStandardMaterial) => void } = {}): Promise<THREE.Group | null> {
+  async instanced(id: string, transforms: THREE.Matrix4[], opts: { shadows?: boolean; patch?: (m: THREE.MeshStandardMaterial) => void; maxDistance?:number } = {}): Promise<THREE.Group | null> {
     const g = await this.model(id);
     if (!g || !transforms.length) return null;
     const group = new THREE.Group();
@@ -106,11 +108,12 @@ class AssetLibrary {
         opts.patch?.(mat);
       }
       // Split into spatial quadrants so frustum culling can drop what is behind the camera.
-      const parts: THREE.Matrix4[][] = transforms.length > 24 ? [[], [], [], []] : [transforms];
+      let parts: THREE.Matrix4[][] = transforms.length > 24 ? [[], [], [], []] : [transforms];
       if (parts.length === 4) for (const t of transforms) {
         const x = t.elements[12], z = t.elements[14];
         parts[(x >= 0 ? 1 : 0) + (z >= 0 ? 2 : 0)].push(t);
       }
+      if(opts.maxDistance){const cells=new Map<string,THREE.Matrix4[]>();for(const t of transforms){const key=Math.floor(t.elements[12]/8)+','+Math.floor(t.elements[14]/8),list=cells.get(key)??[];list.push(t);cells.set(key,list);}parts=[...cells.values()];}
       const tmp = new THREE.Matrix4();
       for (const part of parts) {
         if (!part.length) continue;
@@ -119,6 +122,7 @@ class AssetLibrary {
         im.castShadow = opts.shadows ?? true;
         im.receiveShadow = true;
         im.computeBoundingSphere();
+        if(opts.maxDistance)im.userData.detailRange=opts.maxDistance;
         group.add(im);
       }
     });
@@ -144,14 +148,15 @@ class AssetLibrary {
     if (!this.sets.has(id)) {
       if (!this.has('textures', id)) this.sets.set(id, null);
       else {
+        const detail=QUALITY.cinematic&&this.manifest.detail?.[id];
         const load = (f: string, srgb: boolean) => {
-          const t = this.tex.load(`${BASE}/textures/${id}/${f}.jpg`);
+          const t = this.tex.load(detail?`${BASE}/detail-v1/${id}/${f}.webp`:`${BASE}/textures/${id}/${f}.jpg`);
           t.wrapS = t.wrapT = THREE.RepeatWrapping;
           t.anisotropy = 8;
           if (srgb) t.colorSpace = THREE.SRGBColorSpace;
           return t;
         };
-        this.sets.set(id, { map: load('diff', true), normalMap: load('nor', false), arm: load('arm', false) });
+        this.sets.set(id, { map: load('diff', true), normalMap: load('nor', false), arm: load('arm', false), height:detail&&detail.includes('height')?load('height',false):undefined });
       }
     }
     return this.sets.get(id)!;
@@ -178,6 +183,7 @@ class AssetLibrary {
     m.normalScale.set(normalScale, normalScale);
     m.color.set('#ffffff');
     m.needsUpdate = true;
+    if(s.height) surfaceRelief(m,s.height,id==='cobblestone_floor_01'?.035:id==='weathered_planks'?.012:id==='plastered_wall_02'?.008:.022);
     return true;
   }
 
@@ -223,6 +229,9 @@ class AssetLibrary {
 }
 
 export const assets = new AssetLibrary();
+
+/** Spatially bounded near foliage; distant vegetation uses the inexpensive layer. */
+export function updateAssetLOD(root:THREE.Object3D,camera:THREE.Vector3){root.traverse(o=>{const mesh=o as THREE.InstancedMesh;if(!mesh.userData.detailRange||!mesh.boundingSphere)return;const center=mesh.boundingSphere.center.clone().applyMatrix4(mesh.matrixWorld);mesh.visible=Math.hypot(camera.x-center.x,camera.z-center.z)<mesh.userData.detailRange+mesh.boundingSphere.radius;});}
 
 /** Build a transform matrix from position / yaw / uniform scale. */
 export function place(x: number, y: number, z: number, yaw = 0, s = 1, tilt = 0) {

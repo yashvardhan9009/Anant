@@ -6,6 +6,13 @@ import * as THREE from 'three';
 import type { ObjectKind } from '../../shared/commands';
 import { buildDragon } from './Dragon';
 import { assets } from './assets';
+import {buildCitadel} from './Citadel';
+import {worldBox} from './architecture';
+import {weatherStone} from '../experience/NaturalMaterials';
+import {NOISE_GLSL} from './fx';
+import {softSprite} from './textures';
+import {QUALITY} from './quality';
+import {RoundedBoxGeometry} from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 
 export interface Built {
   root: THREE.Group;
@@ -49,49 +56,30 @@ function mesh(g: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0) {
   return o;
 }
 
-function castle(color: string): Built {
-  const root = new THREE.Group();
-  const stone = std(color);
-  assets.applyTo(stone, 'castle_brick_01', 2, .6); stone.color.set(color);
-  const dark = std('#6b6258');
-  const roof = std('#3b2f5c');
-  const glowWin = new THREE.MeshBasicMaterial({ color: '#ffc46b' });
-  const keep = mesh(new THREE.BoxGeometry(2.2, 3.2, 2.2), stone, 0, 1.6, 0);
-  root.add(keep);
-  root.add(mesh(new THREE.ConeGeometry(1.7, 1.6, 4), roof, 0, 4, 0)).children.at(-1)!.rotation.set(0, Math.PI / 4, 0);
-  for (const [x, z] of [[-2, -2], [2, -2], [-2, 2], [2, 2]]) {
-    root.add(mesh(new THREE.CylinderGeometry(0.55, 0.65, 3.4, 8), stone, x, 1.7, z));
-    root.add(mesh(new THREE.ConeGeometry(0.8, 1.4, 8), roof, x, 4.1, z));
-    for (let i = 0; i < 3; i++) root.add(mesh(new THREE.BoxGeometry(0.12, 0.3, 0.05), glowWin, x + 0.5 * Math.sign(x), 1 + i * 0.9, z + 0.42 * Math.sign(z)));
-  }
-  for (const [x, z, w, d] of [[0, -2, 4, 0.4], [0, 2, 4, 0.4], [-2, 0, 0.4, 4], [2, 0, 0.4, 4]]) {
-    root.add(mesh(new THREE.BoxGeometry(w, 1.6, d), stone, x, 0.8, z));
-    const n = 6;
-    for (let i = 0; i < n; i++) {
-      const t = (i + 0.5) / n - 0.5;
-      root.add(mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), dark, x + (w > 1 ? t * w : 0), 1.75, z + (d > 1 ? t * d : 0)));
-    }
-  }
-  root.add(mesh(new THREE.BoxGeometry(0.8, 1.1, 0.1), std('#2a1d12'), 0, 0.55, 2.22));
-  const banner = mesh(new THREE.PlaneGeometry(0.5, 0.9), new THREE.MeshStandardMaterial({ color: '#b31d3a', side: THREE.DoubleSide }), 0.3, 5.3, 0);
-  root.add(mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.6), dark, 0, 5.1, 0), banner);
-  return { root, tint: [stone], base: 0, animate: (t) => { banner.rotation.y = Math.sin(t * 2) * 0.3; } };
-}
-
 function floatingIsland(color: string): Built {
   const root = new THREE.Group();
   const rock = std('#6d5a4a');
   const grass = std(color);
-  const under = mesh(roughen(new THREE.ConeGeometry(3, 4.2, 9, 3), 0.5, 7), rock, 0, -2.1, 0);
-  under.rotation.x = Math.PI;
+  assets.applyTo(rock,'mossy_rock',1,.65);weatherStone(rock);assets.applyTo(grass,'forest_ground_04',1,.55);grass.color.set(color);
+  const geo=new THREE.BufferGeometry(),positions:number[]=[],texcoords:number[]=[],indices:number[]=[],segments=QUALITY.low?48:128,rows=QUALITY.low?20:48;
+  for(let j=0;j<=rows;j++)for(let i=0;i<=segments;i++){
+    const u=j/rows,a=i/segments*Math.PI*2,r=2.9*(.06+.94*Math.pow(Math.sin(u*Math.PI*.5),.65))*(1-.04*THREE.MathUtils.smoothstep(u,.85,1));
+    const fracture=.16*Math.sin(a*5+u*4)+.11*Math.sin(a*13-u*10)+.035*Math.sin(a*31+u*19);
+    positions.push(Math.cos(a)*(r+fracture),-4.05+u*4.32+Math.sin(a*7+u*9)*.035,Math.sin(a)*(r+fracture));texcoords.push(i/segments,u);
+    if(j<rows&&i<segments){const k=j*(segments+1)+i;indices.push(k,k+segments+1,k+1,k+1,k+segments+1,k+segments+2);}
+  }
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geo.setAttribute('uv',new THREE.Float32BufferAttribute(texcoords,2));geo.setIndex(indices);geo.computeVertexNormals();
+  const under = mesh(geo,rock);
   root.add(under);
-  root.add(mesh(roughen(new THREE.CylinderGeometry(3.1, 3, 0.5, 12, 1), 0.15, 3), grass, 0, 0.25, 0));
+  const topGeo=new THREE.RingGeometry(0,2.9,96,12);topGeo.rotateX(-Math.PI/2);const tp=topGeo.attributes.position as THREE.BufferAttribute,uv=topGeo.attributes.uv as THREE.BufferAttribute;
+  for(let i=0;i<tp.count;i++){const x=tp.getX(i),z=tp.getZ(i),n=Math.sin(x*3.1)*Math.sin(z*2.7);tp.setXYZ(i,x*(1+n*.02),.28+n*.04,z*(1+n*.02));uv.setXY(i,x*.35,z*.35);}topGeo.computeVertexNormals();root.add(mesh(topGeo,grass));
+  for(let i=0;i<7;i++){const a=i*2.399,crag=mesh(roughen(new THREE.IcosahedronGeometry(.65,2),.14,i+9),rock,Math.sin(a)*2.45,-.35-(i%3)*.5,Math.cos(a)*2.45);crag.scale.set(.8,1.3,.8);root.add(crag);}
   const childTrees:Built[]=[];
   const r = rng(11);
-  for (let i = 0; i < 6; i++) {
-    const a = r() * Math.PI * 2, d = 0.6 + r() * 1.8;
-    const child=tree('#2f7a46', 0.45+r()*.3);childTrees.push(child);const tr=child.root;
-    tr.position.set(Math.cos(a) * d, 0.5, Math.sin(a) * d);
+  for (let i = 0; i < 4; i++) {
+    const a = i*2.399+r()*.15, d = 2.5+r()*.2;
+    const child=tree('#2f7a46', 0.25+r()*.15);childTrees.push(child);const tr=child.root;
+    tr.position.set(Math.cos(a) * d, 0.3, Math.sin(a) * d);
     root.add(tr);
   }
   const crystalMat = new THREE.MeshStandardMaterial({ color: '#7df9ff', emissive: '#3fd8ff', emissiveIntensity: 2.2, flatShading: true });
@@ -107,11 +95,17 @@ function floatingIsland(color: string): Built {
   for (let i = 0; i < N; i++) seeds[i] = r();
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const water = new THREE.Points(g, new THREE.PointsMaterial({ color: '#9fe8ff', size: 0.12, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const water = new THREE.Points(g, new THREE.PointsMaterial({ map:softSprite(),color: '#c6e2e5', size: 0.08, transparent: true, opacity: 0.5, depthWrite: false }));
   root.add(water);
+  const flow=new THREE.ShaderMaterial({uniforms:{uTime:{value:0}},side:THREE.DoubleSide,transparent:true,depthWrite:false,
+    vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+    fragmentShader:`varying vec2 vUv;uniform float uTime;${NOISE_GLSL}void main(){float n=fbm(vec3(vUv.x*9.,vUv.y*11.-uTime*2.4,3.));float strands=.5+.5*sin(vUv.x*45.+n*6.);float edge=smoothstep(0.,.17,vUv.x)*(1.-smoothstep(.83,1.,vUv.x));gl_FragColor=vec4(mix(vec3(.21,.39,.45),vec3(.82,.91,.91),strands*n),edge*(.35+n*.4));}`});
+  const ribbon=new THREE.PlaneGeometry(.55,1,8,36),rp=ribbon.attributes.position as THREE.BufferAttribute;
+  for(let i=0;i<rp.count;i++){const u=.5-rp.getY(i),z=rp.getX(i);rp.setXYZ(i,2.86+u*u*.9+Math.sin(u*9)*.025,.32-u*7.8,z*(.7+u*.6));}ribbon.computeVertexNormals();root.add(mesh(ribbon,flow));
   return {
     root, tint: [grass], base: -4, dispose:()=>childTrees.forEach(child=>child.dispose?.()),
     animate: (t) => {
+      flow.uniforms.uTime.value=t;
       for (let i = 0; i < N; i++) {
         const ph = (t * 0.35 + seeds[i]) % 1;
         pos[i * 3] = 2.9 + ph * 0.6 + Math.sin(seeds[i] * 50) * 0.08;
@@ -192,11 +186,13 @@ function tower(color: string): Built {
   const root = new THREE.Group();
   const stone = std(color);
   assets.applyTo(stone, 'stone_wall_04', 3, .5); stone.color.set(color);
-  root.add(mesh(roughen(new THREE.CylinderGeometry(0.9, 1.2, 6, 10, 4), 0.06, 4), stone, 0, 3, 0));
-  root.add(mesh(new THREE.ConeGeometry(1.3, 2, 10), std('#2e2250'), 0, 7, 0));
-  const win = new THREE.MeshBasicMaterial({ color: '#9fe8ff' });
+  root.add(mesh(roughen(new THREE.CylinderGeometry(0.9, 1.2, 6, 64, 16), 0.02, 4), stone, 0, 3, 0));
+  const roof=std('#55575a');assets.applyTo(roof,'roof_slates_02',1,.55);roof.color.set('#686d70');
+  for(let i=0;i<5;i++)root.add(mesh(new THREE.ConeGeometry(1.35-i*.23,.65,64),roof,0,6.2+i*.36,0));
+  for(const y of [.18,.4,2,4,5.8])root.add(mesh(new THREE.CylinderGeometry(y<1?1.22:1.04,y<1?1.24:1.06,.12,64),stone,0,y,0));
+  const win = new THREE.MeshStandardMaterial({ color: '#1a252c',emissive:'#a78a50',emissiveIntensity:.35,roughness:.23 });
   for (let i = 0; i < 4; i++) {
-    const w = mesh(new THREE.BoxGeometry(0.22, 0.4, 0.05), win);
+    const w = mesh(new RoundedBoxGeometry(.22,.45,.06,1,.04), win);
     const a = i * 1.7;
     w.position.set(Math.cos(a) * 1.0, 1.5 + i * 1.2, Math.sin(a) * 1.0);
     w.lookAt(0, w.position.y, 0);
@@ -223,8 +219,8 @@ function orb(color: string): Built {
 
 function monolith(color: string): Built {
   const root = new THREE.Group();
-  const m = std(color, { roughness: 0.25, metalness: 0.6, flatShading: false });
-  root.add(mesh(new THREE.BoxGeometry(1.2, 6, 0.35), m, 0, 3, 0));
+  const m = std(color, { roughness: 0.25, metalness: 0.3, flatShading: false });
+  root.add(mesh(new RoundedBoxGeometry(1.2,6,.35,2,.04), m, 0, 3, 0));
   const glyph = new THREE.MeshBasicMaterial({ color: '#7df9ff' });
   for (let i = 0; i < 9; i++) root.add(mesh(new THREE.BoxGeometry(0.06 + (i % 3) * 0.2, 0.05, 0.01), glyph, ((i * 37) % 5) * 0.12 - 0.25, 1 + i * 0.5, 0.18));
   return { root, tint: [m], base: 0, animate: (t) => { glyph.color.setHSL(0.5 + Math.sin(t) * 0.05, 1, 0.6 + Math.sin(t * 2) * 0.15); } };
@@ -269,7 +265,7 @@ function bridge(color: string): Built {
 
 export function buildObject(kind: ObjectKind, color: string): Built {
   switch (kind) {
-    case 'castle': return castle(color);
+    case 'castle': return buildCitadel(color);
     case 'floating_island': return floatingIsland(color);
     case 'sword': return sword(color);
     case 'crystal': return crystal(color);

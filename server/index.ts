@@ -29,7 +29,7 @@ const store = new Store(process.env.ANANT_DB || 'data/anant.db');
 const DIST = join(process.cwd(), 'dist');
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm',
-  '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.task': 'application/octet-stream', '.woff2': 'font/woff2',
+  '.png': 'image/png', '.jpg':'image/jpeg', '.webp':'image/webp', '.glb':'model/gltf-binary', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.task': 'application/octet-stream', '.woff2': 'font/woff2',
 };
 
 function send(res: ServerResponse, status: number, body: unknown) {
@@ -67,7 +67,8 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse) {
   }
   try {
     const data = await readFile(file);
-    res.writeHead(200, { 'Content-Type': MIME[extname(file)] ?? 'application/octet-stream', 'Cache-Control': file.includes('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache' });
+    const immutable=url.pathname.startsWith('/assets/')&&!url.pathname.endsWith('/manifest.json')&&!url.pathname.endsWith('/CREDITS.json');
+    res.writeHead(200, { 'Content-Type': MIME[extname(file)] ?? 'application/octet-stream', 'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache' });
     res.end(data);
   } catch {
     send(res, 404, { error: 'not found — run `npm run build` first' });

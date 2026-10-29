@@ -113,18 +113,17 @@ export class Phenomenon {
     });
   }
   private water() {
-    const causticLight = new T.PointLight(this.spec.color, 7, 9, 2);
-    causticLight.position.y = 0.8;
-    this.root.add(causticLight);
     const material = new T.MeshPhysicalMaterial({
-      color: this.spec.color,
-      metalness: 0.1,
-      roughness: 0.07,
-      transmission: 0.72,
+      color: '#e3eff1',
+      attenuationColor:new T.Color(this.spec.color).lerp(new T.Color('#ffffff'),.55),
+      attenuationDistance:2.5,
+      metalness: 0,
+      roughness: 0.035,
+      transmission: 0.94,
       thickness: 1.7,
       ior: 1.333,
       clearcoat: 1,
-      envMapIntensity: 2,
+      envMapIntensity: 1,
     });
     const clock = { value: 0 };
     material.onBeforeCompile = (shader) => {
@@ -192,7 +191,7 @@ export class Phenomenon {
   private ice() {
     const mat = new T.MeshPhysicalMaterial({
       color: this.spec.color,
-      metalness: 0.1,
+      metalness: 0,
       roughness: 0.16,
       transmission: 0.4,
       thickness: 2,
