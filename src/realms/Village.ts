@@ -7,6 +7,13 @@ import { halfTimberHouse, worldBox, M, barrel, crate, grassField, forest, rocks,
 import { softSprite, cloth, applyPBR } from '../engine/textures';
 import { QUALITY } from '../engine/quality';
 import { assets, place } from '../engine/assets';
+import {
+  type HdriPack,
+  loadHdris,
+  makeGroundMist,
+  makeLightShafts,
+  makePollen,
+} from '../engine/worldDetail';
 import type { WorldState, Env } from '../../shared/worldState';
 import { NPCS, NpcDef, FACTS, StoryState } from '../../shared/story';
 
@@ -61,6 +68,9 @@ export class Village extends Realm {
   private forgeLight = new THREE.PointLight('#ff6a1a', 30, 16, 2);
   private fireflies = makeMotes(320, new THREE.Vector3(80, 5, 80), '#e4ff8a', 0.07);
   private embers = makeMotes(160, new THREE.Vector3(1.2, 5, 1.2), '#ff8a3a', 0.07);
+  private pollen = makePollen(220, new THREE.Vector3(90, 8, 90), '#ffd8a0');
+  private lightShafts = makeLightShafts(10, new THREE.Vector3(2.5, 4, 2), '#ffb27a', 42, 32);
+  private valleyMist = makeGroundMist(72, '#8a98b0', 0.02, 0.18);
   private hollowMat!: THREE.ShaderMaterial;
   weather = new Weather();
   npcs = new Map<string, NpcView>();
@@ -78,7 +88,7 @@ export class Village extends Realm {
     this.scene.fog = new THREE.FogExp2('#5a3e4a', 0.012);
     this.sky.uniforms.uClouds.value = 0.9;
     this.envSource = this.sky.mesh;
-    this.scene.add(this.sky.mesh, this.hemi, this.fireflies, this.weather.points, this.ridges.group);
+    this.scene.add(this.sky.mesh, this.hemi, this.fireflies, this.pollen, this.lightShafts, this.valleyMist, this.weather.points, this.ridges.group);
     this.sun.castShadow = q.shadows;
     this.sun.shadow.mapSize.set(q.shadowMap, q.shadowMap);
     Object.assign(this.sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 1, far: 220 });
@@ -130,6 +140,7 @@ export class Village extends Realm {
     for (let i = 0; i < rUv.count; i++) rUv.setXY(i, rUv.getX(i) * 1.1, rUv.getY(i) * 16);
     const roadM = new THREE.Mesh(conform(road, 0.04), M.cobble());
     roadM.receiveShadow = true;
+    this.roadMesh = roadM;
     this.scene.add(roadM);
 
     // Buildings — half-timbered, facing the square
@@ -372,7 +383,8 @@ export class Village extends Realm {
   private forestGroup?: THREE.Object3D;
   private rockGroup?: THREE.Object3D;
   private terrain?: THREE.Mesh;
-  private hdr?: { texture: THREE.DataTexture; sunDir: THREE.Vector3; horizon: THREE.Color; zenith: THREE.Color };
+  private roadMesh?: THREE.Mesh;
+  private hdris = new Map<string, HdriPack>();
   /** which real assets were loaded (shown in the reality card) */
   assetReport: string[] = [];
 
@@ -390,6 +402,8 @@ export class Village extends Realm {
       [M.roof('#4a2a28'), 'clay_roof_tiles_02', 2.5], [M.roof('#5a3028'), 'clay_roof_tiles_02', 2.5], [M.roof('#6a3b2c'), 'clay_roof_tiles_02', 2.5],
       [M.roof('#3e3036'), 'roof_slates_02', 2.5], [M.roof('#4a3a3a'), 'roof_slates_02', 2.5], [M.roof('#3a3436'), 'roof_slates_02', 2.5], [M.roof('#3a2c2c'), 'roof_slates_02', 2],
       [M.roof('#3a4a34'), 'thatch_roof_angled', 2],
+      [M.stone(), 'castle_brick_01', 1.2],
+      [M.plaster(), 'worn_mossy_plasterwall', 1],
     ];
     let n = 0;
     for (const [m, id, rep2] of surf) if (assets.applyTo(m, id, rep2, 1.2)) n++;
@@ -412,12 +426,33 @@ export class Village extends Realm {
       col.needsUpdate = true;
       n++;
     }
+    if (this.roadMesh && assets.applyTo(this.roadMesh.material as THREE.MeshStandardMaterial, 'grassy_cobblestone', 10, 1.1)) {
+      (this.roadMesh.material as THREE.MeshStandardMaterial).color.set('#bdb5a8');
+      n++;
+    }
+    if (this.terrain && assets.has('textures', 'forest_ground_04')) {
+      // path-adjacent blend in vertex colours
+      const col = this.terrain.geometry.attributes.color as THREE.BufferAttribute;
+      const pos = this.terrain.geometry.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < col.count; i++) {
+        const x = pos.getX(i), z = pos.getZ(i);
+        const p = this.pathFactor(x, z);
+        if (p < 0.55 && pos.getY(i) < 8) {
+          const c = new THREE.Color(col.getX(i), col.getY(i), col.getZ(i)).lerp(new THREE.Color('#5a4a38'), 0.35 * (1 - p));
+          col.setXYZ(i, c.r, c.g, c.b);
+        }
+      }
+      col.needsUpdate = true;
+    }
     if (n) rep.push(`${n} scanned PBR surfaces`);
 
-    // 2 — real dusk sky (HDRI) lighting the whole scene
-    this.hdr = (await assets.hdri('kloppenheim_06_puresky')) ?? undefined;
-    if (this.hdr) {
-      rep.push('HDRI sky: Kloppenheim 06 (dusk)');
+    // 2 — photographed skies (HDRIs) per time of day
+    this.hdris = await loadHdris(['kloppenheim_02_puresky', 'kloppenheim_06_puresky', 'moonless_golf', 'dikhololo_night']);
+    if (this.hdris.has('kloppenheim_02_puresky')) rep.push('HDRI day: Kloppenheim 02');
+    if (this.hdris.has('kloppenheim_06_puresky')) rep.push('HDRI dawn/dusk: Kloppenheim 06');
+    if (this.hdris.has('moonless_golf')) rep.push('HDRI night: Moonless Golf');
+    if (this.hdris.has('dikhololo_night')) rep.push('HDRI storm: Dikhololo Night');
+    if (this.hdris.size) {
       if (this.env) this.applyEnv(this.env);
     }
 
@@ -720,27 +755,37 @@ export class Village extends Realm {
     if (e.weather === 'storm') fogC.multiplyScalar(0.5);
     // Real photographed sky (HDRI) for dawn/dusk/day when available: it becomes the
     // background AND the image-based light, and the key light follows its sun.
-    const useHdr = !!this.hdr && e.timeOfDay !== 'night' && !e.skyColor && e.weather !== 'storm';
+    let hdrId: string | undefined;
+    if (!e.skyColor) {
+      if (e.weather === 'storm' && this.hdris.has('dikhololo_night')) hdrId = 'dikhololo_night';
+      else if (e.timeOfDay === 'night' && this.hdris.has('moonless_golf')) hdrId = 'moonless_golf';
+      else if (e.timeOfDay === 'day' && this.hdris.has('kloppenheim_02_puresky')) hdrId = 'kloppenheim_02_puresky';
+      else if ((e.timeOfDay === 'dawn' || e.timeOfDay === 'dusk') && this.hdris.has('kloppenheim_06_puresky')) hdrId = 'kloppenheim_06_puresky';
+      else if (this.hdris.has('kloppenheim_06_puresky')) hdrId = 'kloppenheim_06_puresky';
+    }
+    const pack = hdrId ? this.hdris.get(hdrId) : undefined;
+    const useHdr = !!pack;
     this.sky.mesh.visible = !useHdr;
-    this.scene.background = useHdr ? this.hdr!.texture : null;
-    this.envTexture = useHdr ? this.hdr!.texture : undefined;
+    this.scene.background = useHdr ? pack!.texture : null;
+    this.envTexture = useHdr ? pack!.texture : undefined;
     this.scene.environmentIntensity = useHdr ? 0.45 : 1;
-    this.scene.backgroundIntensity = 0.9;
+    this.scene.backgroundIntensity = useHdr ? 0.88 : 0.9;
+    this.pollen.visible = e.timeOfDay === 'dawn' || e.timeOfDay === 'day';
     if (useHdr) {
-      const d = this.hdr!.sunDir.clone();
+      const d = pack!.sunDir.clone();
       if (d.y < 0.06) d.y = 0.06;
       d.normalize();
       this.sun.position.copy(d.clone().multiplyScalar(120));
       this.sunWorld = d.clone().multiplyScalar(800);
-      fogC.copy(this.hdr!.horizon);
+      fogC.copy(pack!.horizon);
       const lum = fogC.r * 0.2126 + fogC.g * 0.7152 + fogC.b * 0.0722;
       fogC.multiplyScalar(Math.min(1, 0.16 / Math.max(1e-3, lum)));
-      const z = this.hdr!.zenith;
+      const z = pack!.zenith;
       this.hemi.color.copy(z).multiplyScalar(1 / Math.max(1e-3, z.r, z.g, z.b));
       this.hemi.intensity = 0.12;
       this.sun.intensity = (e.timeOfDay === 'day' ? 5 : 6) * (e.weather === 'rain' ? 0.45 : 1);
       this.sun.color.set(e.timeOfDay === 'day' ? '#fff0dc' : '#ffb070');
-      this.look.exposure = e.timeOfDay === 'day' ? 0.7 : 0.85;
+      this.look.exposure = e.timeOfDay === 'day' ? 0.7 : e.timeOfDay === 'night' ? 0.95 : 0.85;
       this.look.contrast = 1.2;
       this.look.saturation = 1.05;
     }
@@ -749,6 +794,8 @@ export class Village extends Realm {
     fog.density = (useHdr ? 0.0015 + e.fog * 0.008 : 0.003 + e.fog * 0.016) + (e.weather === 'storm' ? 0.008 : 0);
     u.uAurora.value = e.weather === 'aurora' ? 1 : 0;
     this.weather.set(e.weather);
+    this.lightShafts.userData.setStrength?.(e.timeOfDay === 'night' || e.weather === 'storm' ? 0 : e.timeOfDay === 'day' ? 0.18 : 0.32);
+    this.valleyMist.userData.setStrength?.(0.12 + e.fog * 0.25 + (e.timeOfDay === 'dawn' ? 0.12 : 0) + (e.weather === 'rain' ? 0.1 : 0));
     for (const l of this.lanternLights) l.intensity = 8 * presets.lan;
     M.glassWarm().emissiveIntensity = presets.lan > 0.3 ? 2.2 * presets.lan : 0.15;
     this.ridges.tint(new THREE.Color(presets.bot).lerp(new THREE.Color('#202434'), 0.5), fogC);
@@ -777,6 +824,9 @@ export class Village extends Realm {
     const t = ctx.t;
     this.sky.uniforms.uTime.value = t;
     this.sky.uniforms.uLightning.value = this.weather.lightning;
+    this.lightShafts.userData.tick?.(t);
+    this.valleyMist.userData.tick?.(t);
+    (this.pollen.material as THREE.ShaderMaterial).uniforms.uTime.value = t;
     this.hollowMat.uniforms.uTime.value = t;
     for (const m of [this.fireflies, this.embers, ...this.smokes]) (m.material as THREE.ShaderMaterial).uniforms.uTime.value = t;
     WIND.uTime.value = t;

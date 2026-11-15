@@ -399,5 +399,23 @@
     "license": "CC BY 4.0",
     "source": "https://www.solarsystemscope.com/textures/",
     "note": "Based on NASA imagery and elevation data."
+  },
+  "studio_small_09": {
+    "name": "Studio Small 09",
+    "type": "hdri",
+    "authors": [
+      "Sergej Majboroda"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/studio_small_09"
+  },
+  "dikhololo_night": {
+    "name": "Dikhololo Night",
+    "type": "hdri",
+    "authors": [
+      "Greg Zaal"
+    ],
+    "license": "CC0 1.0",
+    "source": "https://polyhaven.com/a/dikhololo_night"
   }
 }

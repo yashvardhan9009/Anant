@@ -5,6 +5,7 @@ import { makeSkyDome, makeStarfield, NOISE_GLSL } from '../engine/fx';
 import { radialTexture } from './Atom';
 import { QUALITY } from '../engine/quality';
 import { assets } from '../engine/assets';
+import { makeAtmosphereShell, makeCosmicDust } from '../engine/worldDetail';
 import { cosmosDisplayHeight, cosmicLayer, formatLength } from '../../shared/scale';
 import { MilkyWayModel, GalaxyField, CatalogEntry } from './cosmicLayers';
 import { resolveAstro, formatDistance } from '../../shared/astro';
@@ -50,7 +51,7 @@ export class Cosmos extends Realm {
   private revision = 0;
   private views = new Map<string, BodyView>();
   private system = new THREE.Group();
-  private sky = makeSkyDome();
+  protected sky = makeSkyDome();
   private bh!: THREE.Mesh;
   private bhMat!: THREE.ShaderMaterial;
   private bhOn = false;
@@ -61,6 +62,8 @@ export class Cosmos extends Realm {
   private e0 = 0;
   private centerIdx = 0;
   private stepsLastFrame = 0;
+  private nebulaDust = makeCosmicDust(QUALITY.low ? 1200 : 3200, 420);
+  private atmosShell!: THREE.Mesh;
 
   protected build() {
     this.look = { exposure: 1.0, bloom: [0.6, 0.6, 0.8], contrast: 1.12, saturation: 1.05, shadows: '#040818', highlights: '#fff0dc', vignette: 0.7, godRays: 0.3 };
@@ -68,7 +71,8 @@ export class Cosmos extends Realm {
     su.uHorizon.value.set('#04050c'); su.uTop.value.set('#010104'); su.uBottom.value.set('#010104');
     su.uNebA.value.set('#3a2a7a'); su.uNebB.value.set('#103e6a'); su.uNebula.value = 0.35; su.uBand.value = 1.1; su.uStars.value = 1.3;
     this.starfield = makeStarfield(QUALITY.low ? 3000 : 6000, 900, 1.2);
-    this.scene.add(this.sky.mesh, this.starfield, this.system);
+    this.atmosShell = makeAtmosphereShell(880, '#0a1630', '#020106');
+    this.scene.add(this.sky.mesh, this.starfield, this.nebulaDust, this.atmosShell, this.system);
     if (this.cosmic) this.initCosmic();
     // the real sky: Milky Way panorama (Solar System Scope, from ESO/NASA imagery)
     const mw = assets.space('8k_stars_milky_way.jpg');
@@ -467,6 +471,7 @@ export class Cosmos extends Realm {
   update(ctx: FrameCtx) {
     super.update(ctx);
     this.sky.uniforms.uTime.value = ctx.t;
+    this.nebulaDust.userData.spin?.(ctx.t);
     if (this.skySphere && ctx.active) this.skySphere.position.copy(ctx.camera.position);
     if (!this.paused && !ctx.frozen && (ctx.active || ctx.dt > 0)) {
       const years = this.timeScale * ctx.dt;

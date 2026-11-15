@@ -5,6 +5,15 @@ import { Realm, InfoCard, FrameCtx } from '../engine/Realm';
 import { makeSkyDome, makeMotes, Weather } from '../engine/fx';
 import { obsidian, darkMetal, applyPBR } from '../engine/textures';
 import { QUALITY } from '../engine/quality';
+import { assets } from '../engine/assets';
+import {
+  type HdriPack,
+  loadHdris,
+  makeAtmosphereShell,
+  makeGroundMist,
+  makeLightShafts,
+  makeNexusSetDressing,
+} from '../engine/worldDetail';
 import type { WorldState, Env } from '../../shared/worldState';
 import type { RealmId } from '../../shared/commands';
 
@@ -21,6 +30,12 @@ export class Nexus extends Realm {
   private rings: THREE.Mesh[] = [];
   private motes = makeMotes(700, new THREE.Vector3(70, 30, 70), '#b6a8ff', 0.05);
   weather = new Weather();
+  private lightShafts = makeLightShafts(14, new THREE.Vector3(0, 8, -6), '#9a7bff', 48, 28);
+  private groundMist = makeGroundMist(16, '#1a1430', 0.03, 0.28);
+  private setDressing = makeNexusSetDressing();
+  private hdris = new Map<string, HdriPack>();
+  /** CC0 sky backdrops in use (for the reality card). */
+  assetReport: string[] = [];
   gates: THREE.Group[] = [];
   private amb = new THREE.HemisphereLight('#5a62b0', '#07050c', 0.35);
   private metal!: THREE.MeshStandardMaterial;
@@ -229,6 +244,26 @@ export class Nexus extends Realm {
       this.gates.push(g);
       this.scene.add(g);
     }
+
+    this.scene.add(
+      makeAtmosphereShell(400, '#1a1038', '#05030f'),
+      this.lightShafts,
+      this.groundMist,
+      this.setDressing,
+    );
+    this.upgradeEnvironment();
+  }
+
+  /** Optional CC0 HDRIs for the threshold sky and image-based lighting. */
+  private async upgradeEnvironment() {
+    await assets.init();
+    this.hdris = await loadHdris(['dikhololo_night', 'moonless_golf']);
+    const rep: string[] = [];
+    if (this.hdris.has('dikhololo_night')) rep.push('HDRI sky: Dikhololo Night (deep space backdrop)');
+    if (this.hdris.has('moonless_golf')) rep.push('HDRI accents: Moonless Golf');
+    this.assetReport = rep;
+    if (this.env) this.applyEnv(this.env);
+    this.envDirty = true;
   }
 
   private makeSigil(realm: RealmId, color: string) {
@@ -293,10 +328,24 @@ export class Nexus extends Realm {
     if (e.skyColor) u.uTint.value.set(e.skyColor);
     u.uAurora.value = e.weather === 'aurora' ? 1 : 0;
     this.weather.set(e.weather);
-    (this.scene.fog as THREE.FogExp2).density = 0.003 + e.fog * 0.025;
+    (this.scene.fog as THREE.FogExp2).density = 0.003 + e.fog * 0.025 + (e.weather === 'storm' ? 0.004 : 0);
     const bright = e.timeOfDay === 'day' ? 1 : e.timeOfDay === 'dawn' ? 0.6 : 0.3;
     u.uHorizon.value.set(e.timeOfDay === 'day' ? '#2a2a6a' : e.timeOfDay === 'dawn' ? '#3a1e4a' : '#0c0a22');
     this.amb.intensity = 0.25 + bright * 0.5;
+    const storm = e.weather === 'storm' || e.weather === 'rain';
+    const useHdr = !e.skyColor && !storm && this.hdris.has('dikhololo_night');
+    const pack = useHdr ? this.hdris.get('dikhololo_night')! : undefined;
+    this.sky.mesh.visible = !useHdr;
+    this.scene.background = pack ? pack.texture : null;
+    this.envTexture = pack?.texture;
+    this.scene.backgroundIntensity = useHdr ? 0.75 : 1;
+    this.scene.environmentIntensity = useHdr ? 0.55 : 1;
+    if (pack) {
+      const fog = this.scene.fog as THREE.FogExp2;
+      fog.color.copy(pack.horizon).multiplyScalar(0.35);
+    }
+    this.groundMist.userData.setStrength?.(0.2 + e.fog * 0.35 + (e.weather === 'aurora' ? 0.15 : 0));
+    this.lightShafts.userData.setStrength?.(e.timeOfDay === 'day' ? 0.35 : 0.22);
     this.envDirty = true;
   }
 
@@ -333,6 +382,8 @@ export class Nexus extends Realm {
     }
     this.shards.instanceMatrix.needsUpdate = true;
     this.weather.update(ctx.dt, ctx.camera.position, this.env?.gravity ?? 1, t);
+    this.lightShafts.userData.tick?.(t);
+    this.groundMist.userData.tick?.(t);
   }
 
   info(s: WorldState): InfoCard {
@@ -345,6 +396,7 @@ export class Nexus extends Realm {
         { label: 'Objects here', value: String(s.objects.filter((o) => o.realm === 'nexus').length) },
         { label: 'Open portals', value: String(s.portals.filter((p) => p.from === 'nexus').length) },
         { label: 'Gravity', value: `${s.env.nexus.gravity}×` },
+        ...(this.assetReport.length ? [{ label: 'World assets', value: this.assetReport.join(' · ') }] : []),
       ],
     };
   }
