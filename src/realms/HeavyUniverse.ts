@@ -6,10 +6,13 @@
  * orbits; everything else (faster years, energy, orbital elements) is computed live.
  * The premise is not observed physics, and every card says so.
  */
+import * as THREE from 'three';
 import { Cosmos } from './Cosmos';
-import type { InfoCard } from '../engine/Realm';
+import type { FrameCtx, InfoCard } from '../engine/Realm';
 import type { WorldState } from '../../shared/worldState';
 import { UNIVERSES, derived, universeSystem, formatYears } from '../../shared/universes';
+import { makeCosmicDust } from '../engine/worldDetail';
+import { QUALITY } from '../engine/quality';
 
 const U = UNIVERSES.heavy;
 
@@ -19,9 +22,26 @@ export class HeavyUniverse extends Cosmos {
   protected starImagery = false;
   private bodies = universeSystem(U).map((b) => (b.id === 'sun' ? { ...b, name: 'Sun′', color: U.starTint } : b));
 
+  private heavyHaze = makeCosmicDust(QUALITY.low ? 900 : 2200, 380);
+
   protected build() {
     super.build();
     this.look = { ...this.look, saturation: 0.95, shadows: '#0a0618', highlights: '#e8f0ff' };
+    const u = this.sky.uniforms;
+    u.uNebA.value.set('#6a2ab8');
+    u.uNebB.value.set('#c838a8');
+    u.uNebula.value = 0.85;
+    u.uHorizon.value.set('#1a0a28');
+    u.uTop.value.set('#0a0418');
+    this.heavyHaze.material = (this.heavyHaze.material as THREE.PointsMaterial).clone();
+    (this.heavyHaze.material as THREE.PointsMaterial).color.set('#bb66ff');
+    (this.heavyHaze.material as THREE.PointsMaterial).opacity = 0.42;
+    this.scene.add(this.heavyHaze);
+  }
+
+  update(ctx: FrameCtx) {
+    super.update(ctx);
+    this.heavyHaze.userData.spin?.(ctx.t);
   }
 
   /** Present this universe's own system to the shared Cosmos machinery. */

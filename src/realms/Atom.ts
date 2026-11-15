@@ -7,6 +7,8 @@ import { WaterMolecule, ProtonCore, PROTON_RADIUS_A0, A0_M, niceLength, WATER } 
 import { WaterField, PickedAtom } from './waterField';
 import { QUALITY } from '../engine/quality';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { assets } from '../engine/assets';
+import { makeCosmicDust, makeStudioFloor, makeStudioGrid } from '../engine/worldDetail';
 import type { WorldState, Env } from '../../shared/worldState';
 import { orbitalName } from '../../shared/commands';
 import { sampleOrbital, mostProbableRadius, expectedRadius, energyEV, radialProbability, maxRadius, wavelengthToHex } from '../../shared/hydrogen';
@@ -63,9 +65,17 @@ export class Atom extends Realm {
 
   private studio!: THREE.ShaderMaterial;
   private dust = makeMotes(500, new THREE.Vector3(60, 40, 60), '#7fb8ff', 0.035);
+  private studioGrid = makeStudioGrid(24, '#2a6aaa', -7);
+  private studioFloor = makeStudioFloor(13, -7);
   private envBuilt = false;
+  /** CC0 studio HDRI when downloaded (see scripts/fetch-assets.mjs). */
+  assetReport: string[] = [];
 
   buildEnvironment(pmrem: THREE.PMREMGenerator) {
+    if (this.envTexture) {
+      super.buildEnvironment(pmrem);
+      return;
+    }
     if (this.envBuilt) return;
     this.envBuilt = true;
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -89,7 +99,10 @@ export class Atom extends Realm {
     });
     const dome = new THREE.Mesh(new THREE.SphereGeometry(500, 48, 24), this.studio);
     dome.frustumCulled = false;
-    this.scene.add(dome, this.dust);
+    this.scene.add(dome, this.dust, this.studioGrid, this.studioFloor);
+    this.studioGrid.visible = false;
+    this.studioFloor.visible = false;
+    void this.upgradeStudioSky();
     const keyL = new THREE.DirectionalLight('#cfe0ff', 1.6);
     keyL.position.set(-6, 8, 6);
     const rimL = new THREE.PointLight('#ff9a50', 30, 30, 2);
@@ -181,6 +194,16 @@ export class Atom extends Realm {
     this.scene.add(this.scaleBar, this.scaleLabel);
 
     this.setOrbital(1, 0, 0, true);
+  }
+
+  private async upgradeStudioSky() {
+    await assets.init();
+    const h = await assets.hdri('studio_small_09');
+    if (h) {
+      this.envTexture = h.texture;
+      this.assetReport = ['HDRI studio: Studio Small 09 (CC0, Poly Haven)'];
+      this.envDirty = true;
+    }
   }
 
   private setOrbital(n: number, l: number, m: number, instant = false) {
@@ -334,6 +357,9 @@ export class Atom extends Realm {
     const shown = Math.max(trueR, 0.035 * Math.max(0.3, Math.min(1, this.camera0Dist(ctx) / 16)));
     this.nucleus.scale.setScalar(shown / 0.14);
     this.nucleus.visible = this.state0ShowNucleus && this.layers.proton < 0.5 && this.layers.orbital > 0.2;
+    const quantum = this.layers.orbital > 0.35;
+    this.studioGrid.visible = quantum;
+    this.studioFloor.visible = quantum;
     const rmp = mostProbableRadius(this.current.n, this.current.l) * S;
     this.shell.scale.setScalar(rmp);
     u.uShellR.value = this.shell.visible ? rmp : -1;
@@ -450,6 +476,7 @@ export class Atom extends Realm {
         { label: '⟨r⟩', value: `${expectedRadius(n, l).toFixed(2)} a₀` },
         { label: 'Radial nodes', value: String(n - l - 1) },
         { label: 'Angular nodes', value: String(l) },
+        ...(this.assetReport.length ? [{ label: 'World assets', value: this.assetReport.join(' · ') }] : []),
       ],
       extraHtml: energyDiagram(n) + radialPlot(n, l, rmp) + (s.atom.transition ? `<div class="photon-note" style="--pc:${wavelengthToHex(s.atom.transition.lambda)}">Last photon: <b>${s.atom.transition.lambda.toFixed(1)} nm</b> (${s.atom.transition.kind}${s.atom.transition.lambda < 380 ? ', ultraviolet — invisible, drawn violet' : s.atom.transition.lambda > 750 ? ', infrared — invisible, drawn red' : ''})</div>` : ''),
     };

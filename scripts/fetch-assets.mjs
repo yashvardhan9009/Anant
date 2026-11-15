@@ -58,7 +58,15 @@ export const TEXTURES = {
 };
 
 /** HDRI skies (equirectangular, used for both background and image-based lighting). */
-export const HDRIS = { kloppenheim_06_puresky: '4k', kloppenheim_02_puresky: '2k', moonless_golf: '2k' };
+export const HDRIS = {
+  kloppenheim_06_puresky: '4k',
+  kloppenheim_02_puresky: '2k',
+  moonless_golf: '2k',
+  /** Macro product-shot lighting for the hydrogen realm. */
+  studio_small_09: '2k',
+  /** Deep night sky for Nexus threshold & Emberfall after dark. */
+  dikhololo_night: '4k',
+};
 
 function curl(url, dest) {
   mkdirSync(dirname(dest), { recursive: true });
